@@ -23,6 +23,7 @@ func (f fakeKVGetter) Get(ctx context.Context, key string, opts ...clientv3.OpOp
 
 // TestProviderResolve 验证 etcd provider 能正确解析注册 JSON。
 func TestProviderResolve(t *testing.T) {
+	// 这里用一条最小合法 JSON 注册值，验证 etcd provider 的解析主路径。
 	provider := &Provider{
 		Config: config.EtcdSourceConfig{
 			Namespace: "/microservice/lhdht",
@@ -47,10 +48,13 @@ func TestProviderResolve(t *testing.T) {
 	if err != nil {
 		t.Fatalf("resolve failed: %v", err)
 	}
+	// 如果 Resolve 成功，说明 provider 已经走通了：
+	// 目录前缀拼装 -> KV 查询 -> JSON 解析 -> Endpoint 转换。
 
 	if got, want := len(snapshot.Endpoints), 1; got != want {
 		t.Fatalf("unexpected endpoint count: got=%d want=%d", got, want)
 	}
+	// 下面三项断言分别覆盖 host、port、weight 三个核心提取字段。
 	if got, want := snapshot.Endpoints[0].Address, "10.0.0.21"; got != want {
 		t.Fatalf("unexpected address: got=%s want=%s", got, want)
 	}

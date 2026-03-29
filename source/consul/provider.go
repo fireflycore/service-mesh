@@ -21,6 +21,7 @@ type healthService interface {
 type Provider struct {
 	// Config 保留原始连接参数，方便测试和调试观察。
 	Config config.ConsulSourceConfig
+	// health 是对 Consul Health API 的最小依赖面。
 	health healthService
 }
 
@@ -50,6 +51,7 @@ func New(cfg config.ConsulSourceConfig) (*Provider, error) {
 }
 
 func (p *Provider) Name() string {
+	// Name 主要用于日志与调试展示。
 	return "consul"
 }
 
@@ -69,6 +71,7 @@ func (p *Provider) Resolve(_ context.Context, target model.ServiceRef) (model.Se
 	}
 
 	snapshot := model.ServiceSnapshot{
+		// Consul 当前不会额外改写 service 维度，直接沿用查询目标。
 		Service:   target,
 		Endpoints: make([]model.Endpoint, 0, len(rows)),
 	}
@@ -101,12 +104,14 @@ func decodeEndpoint(row *api.ServiceEntry) (model.Endpoint, bool) {
 		address = strings.TrimSpace(row.Node.Address)
 	}
 	if address == "" || row.Service.Port == 0 {
+		// 地址或端口任何一个缺失，都无法形成可路由 endpoint。
 		return model.Endpoint{}, false
 	}
 
 	return model.Endpoint{
 		Address: address,
 		Port:    uint32(row.Service.Port),
-		Weight:  1,
+		// 当前 Consul provider 先统一给 1，后续再视需要接入权重语义。
+		Weight: 1,
 	}, true
 }

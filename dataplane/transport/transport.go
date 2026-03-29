@@ -51,6 +51,7 @@ type rawProtoCodec struct{}
 func (c rawProtoCodec) Marshal(v any) ([]byte, error) {
 	msg, ok := v.(*RawMessage)
 	if !ok {
+		// 这里显式校验类型，避免错误调用方把其他结构误传进来。
 		return nil, fmt.Errorf("raw proto codec expects *RawMessage, got %T", v)
 	}
 	return msg.Payload, nil
@@ -62,6 +63,7 @@ func (c rawProtoCodec) Unmarshal(data []byte, v any) error {
 	if !ok {
 		return fmt.Errorf("raw proto codec expects *RawMessage, got %T", v)
 	}
+	// append(msg.Payload[:0], data...) 可以复用底层切片容量，减少一次分配。
 	msg.Payload = append(msg.Payload[:0], data...)
 	return nil
 }
@@ -90,6 +92,7 @@ type GRPC struct {
 	mu sync.Mutex
 	// conns 按 host:port 复用底层连接，避免每次 Invoke 都重新拨号。
 	conns map[string]*grpc.ClientConn
+	// codec 固定为 rawProtoCodec，保证请求/响应都按原始 protobuf bytes 透传。
 	codec rawProtoCodec
 }
 
@@ -112,18 +115,22 @@ func (t *GRPC) Invoke(ctx context.Context, endpoint model.Endpoint, req *invokev
 
 	conn, err := t.conn(ctx, target)
 	if err != nil {
+		// 建链失败直接上抛，由 invoke 层决定是否按 retry 策略重试。
 		return nil, err
 	}
 
 	request := &RawMessage{Payload: req.GetPayload()}
 	response := &RawMessage{}
+	// request/response 都只是一层 bytes 包装，不理解任何业务消息结构。
 
 	// ForceCodec 让 gRPC 走我们的“原始 protobuf bytes”编解码路径。
 	if err := conn.Invoke(ctx, req.GetMethod(), request, response, grpc.ForceCodec(t.codec)); err != nil {
+		// 这里返回的通常是标准 gRPC status error，方便上层按 code 做重试判断。
 		return nil, err
 	}
 
 	return &invokev1.UnaryInvokeResponse{
+		// codec 沿用请求值返回，表示 transport 层不会重新解释载荷格式。
 		Payload: response.Payload,
 		Codec:   req.GetCodec(),
 	}, nil
@@ -138,10 +145,12 @@ func (t *GRPC) conn(ctx context.Context, target string) (*grpc.ClientConn, error
 		// 已有连接直接复用，避免重复建链带来的时延与资源开销。
 		return conn, nil
 	}
+	// 当前实现没有做连接健康探测，默认交给 gRPC 自己处理重连与状态维护。
 
 	conn, err := grpc.DialContext(
 		ctx,
 		target,
+		// 当前先使用明文连接，后续若需要再把 TLS 做成可配置能力。
 		grpc.WithTransportCredentials(insecure.NewCredentials()),
 		grpc.WithStatsHandler(otelgrpc.NewClientHandler()),
 	)

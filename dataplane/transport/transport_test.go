@@ -25,6 +25,7 @@ func (s *downstreamInvokeServer) UnaryInvoke(_ context.Context, req *invokev1.Un
 
 // TestGRPCInvoke 验证 transport 可以透传原始 protobuf bytes。
 func TestGRPCInvoke(t *testing.T) {
+	// 这里启动一个真实下游服务，用来验证 transport 的原始 bytes 转发能力。
 	server := grpc.NewServer()
 	invokev1.RegisterMeshInvokeServiceServer(server, &downstreamInvokeServer{})
 
@@ -50,6 +51,8 @@ func TestGRPCInvoke(t *testing.T) {
 	}
 
 	nestedReq, err := proto.Marshal(&invokev1.UnaryInvokeRequest{
+		// 这里故意把一个“嵌套的 UnaryInvokeRequest”编码成 payload，
+		// 用来证明 transport 并不理解业务类型，只负责透传 bytes。
 		Target: &invokev1.ServiceRef{
 			Service:   "inventory",
 			Namespace: "default",

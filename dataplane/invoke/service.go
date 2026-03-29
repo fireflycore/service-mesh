@@ -134,6 +134,7 @@ func (s *Service) UnaryInvoke(ctx context.Context, req *invokev1.UnaryInvokeRequ
 	if s.options.PolicySource != nil {
 		// 控制面若下发了 RoutePolicy，则在当前调用维度覆盖本地静态配置。
 		if policy, ok := s.options.PolicySource.ResolveRoutePolicy(target); ok {
+			// 这里不直接改写 s.options，避免一次策略命中污染后续其他请求。
 			effectiveOptions = mergeOptionsWithPolicy(s.options, policy)
 		}
 	}
@@ -153,6 +154,7 @@ func (s *Service) UnaryInvoke(ctx context.Context, req *invokev1.UnaryInvokeRequ
 
 	// telemetry 从真正进入业务链路前开始统计。
 	effectiveOptions.Telemetry.RecordRequest(callCtx)
+	// spanCtx 可能在 StartInvoke 内挂上 trace/span 元数据，后续各阶段都沿用它。
 	spanCtx, span := effectiveOptions.Telemetry.StartInvoke(callCtx, req)
 	defer span.End()
 	start := time.Now()
@@ -174,6 +176,7 @@ func (s *Service) UnaryInvoke(ctx context.Context, req *invokev1.UnaryInvokeRequ
 		// 兜底保证至少执行一次。
 		attempts = 1
 	}
+	// attempts 的语义是“总尝试次数”，因此 2 代表“首次 + 1 次重试”。
 
 	var lastErr error
 	for attempt := uint32(1); attempt <= attempts; attempt++ {
@@ -191,6 +194,7 @@ func (s *Service) UnaryInvoke(ctx context.Context, req *invokev1.UnaryInvokeRequ
 			// resolver 失败通常意味着目录不可用、无健康实例，或 balancer 无法选点。
 			lastErr = err
 		} else {
+			// 只有解析成功后才真正发起下游网络请求。
 			// transport 只负责把请求真正发给下游业务实例。
 			resp, invokeErr := s.transport.Invoke(attemptCtx, endpoint, req)
 			if invokeErr == nil {
@@ -208,6 +212,7 @@ func (s *Service) UnaryInvoke(ctx context.Context, req *invokev1.UnaryInvokeRequ
 		if !shouldRetry(lastErr, attempt, attempts, effectiveOptions) {
 			break
 		}
+		// 记录的是“已经决定继续下一轮”的重试事件，而不是简单的失败次数。
 		effectiveOptions.Telemetry.RecordRetry(spanCtx, int64(attempt))
 
 		if effectiveOptions.RetryBackoff > 0 {
@@ -251,6 +256,7 @@ func defaultOptions() Options {
 		RetryMaxAttempts: 2,
 		RetryBackoff:     50 * time.Millisecond,
 		RetryableCodes: map[codes.Code]struct{}{
+			// 默认只对常见瞬时错误打开重试。
 			codes.Unavailable:       {},
 			codes.DeadlineExceeded:  {},
 			codes.ResourceExhausted: {},
@@ -275,6 +281,7 @@ func normalizeOptions(options Options) Options {
 	}
 	if len(options.RetryableCodes) == 0 {
 		options.RetryableCodes = map[codes.Code]struct{}{
+			// 这里和 defaultOptions 保持相同集合，避免两条默认路径出现漂移。
 			codes.Unavailable:       {},
 			codes.DeadlineExceeded:  {},
 			codes.ResourceExhausted: {},
@@ -311,6 +318,7 @@ func OptionsFromConfig(cfg config.InvokeConfig) Options {
 			retryable[codes.Unavailable] = struct{}{}
 		}
 	}
+	// 静默忽略未知 code 的目的是兼容未来配置扩展，而不是在加载阶段直接失败。
 
 	// 配置层用毫秒和字符串表达，运行时层统一转成 Duration 和枚举 map。
 	return normalizeOptions(Options{
@@ -339,6 +347,7 @@ func shouldRetry(err error, attempt, attempts uint32, options Options) bool {
 	}
 
 	statusCode := status.Code(err)
+	// 对普通 gRPC error，直接按 status code 是否出现在 allow-list 决定。
 	_, ok := options.RetryableCodes[statusCode]
 	return ok
 }
@@ -356,6 +365,7 @@ func mergeOptionsWithPolicy(base Options, policy *controlv1.RoutePolicy) Options
 	}
 	if policy.GetRetry() != nil {
 		if policy.GetRetry().GetMaxAttempts() > 0 {
+			// max_attempts 同样包含第一次尝试，和本地语义保持一致。
 			merged.RetryMaxAttempts = policy.GetRetry().GetMaxAttempts()
 		}
 		if policy.GetRetry().GetPerTryTimeoutMs() > 0 {
@@ -371,6 +381,7 @@ func mergeOptionsWithPolicy(base Options, policy *controlv1.RoutePolicy) Options
 // applyLocalIdentity 在 sidecar 模式下补齐本地 caller 身份与默认目标域。
 func applyLocalIdentity(req *invokev1.UnaryInvokeRequest, identity *LocalIdentity) error {
 	if identity == nil {
+		// agent 模式没有本地服务身份补齐需求，因此直接跳过。
 		return nil
 	}
 	if req.Context == nil {
@@ -397,6 +408,7 @@ func applyLocalIdentity(req *invokev1.UnaryInvokeRequest, identity *LocalIdentit
 		req.Context.Caller.AppId = identity.AppID
 	}
 	if strings.TrimSpace(req.Context.Caller.Service) == "" {
+		// sidecar 默认把 caller.service 绑定到自己的本地业务服务名。
 		req.Context.Caller.Service = identity.Service
 	}
 	if strings.TrimSpace(req.Context.Caller.Namespace) == "" {
@@ -452,6 +464,7 @@ func ensureMatch(field, actual, expected string) error {
 func defaultTraceID(identity *LocalIdentity) string {
 	base := "mesh"
 	if identity != nil && strings.TrimSpace(identity.Service) != "" {
+		// 有本地服务名时，把 trace 前缀设成 service，更利于日志肉眼识别。
 		base = strings.TrimSpace(identity.Service)
 	}
 	return base + "-" + strconv.FormatInt(time.Now().UnixNano(), 10)

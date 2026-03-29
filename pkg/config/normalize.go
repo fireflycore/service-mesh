@@ -32,9 +32,11 @@ func Normalize(cfg *Config) {
 
 	// 下面开始补齐数值型默认值。
 	if cfg.Runtime.Agent.WorkerCount <= 0 {
+		// 当前默认 4 个 worker，作为本地最小并发基线。
 		cfg.Runtime.Agent.WorkerCount = 4
 	}
 	if cfg.Runtime.Agent.MaxInflight <= 0 {
+		// 默认 inflight 保护值偏保守，优先保证本地实验可用。
 		cfg.Runtime.Agent.MaxInflight = 1024
 	}
 	if cfg.Authz.TimeoutMS == 0 {
@@ -63,15 +65,19 @@ func Normalize(cfg *Config) {
 	}
 	// 最后补齐字符串/切片默认值。
 	if cfg.Runtime.Agent.Listen.Network == "" {
+		// agent 默认走 unix，更适合同机共享入口。
 		cfg.Runtime.Agent.Listen.Network = "unix"
 	}
 	if cfg.Runtime.Sidecar.Listen.Network == "" {
+		// sidecar 默认走 tcp，更贴近容器/进程内本地代理习惯。
 		cfg.Runtime.Sidecar.Listen.Network = "tcp"
 	}
 	if cfg.Runtime.Sidecar.ServiceName == "" {
+		// service_name 缺省时给一个占位值，避免后续运行时装配拿到空字符串。
 		cfg.Runtime.Sidecar.ServiceName = "service-mesh-sidecar"
 	}
 	if len(cfg.Invoke.RetryableCodes) == 0 {
+		// 只给典型瞬时错误默认开启重试，避免对明确业务错误做无意义重试。
 		cfg.Invoke.RetryableCodes = []string{
 			"unavailable",
 			"deadline_exceeded",

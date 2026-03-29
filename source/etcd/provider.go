@@ -26,16 +26,21 @@ type kvGetter interface {
 // 而是只保留 service-mesh 解析目录真正需要的字段，
 // 这样可以减少不必要的模块耦合。
 type serviceNode struct {
-	Weight  int          `json:"weight"`
+	// Weight 是注册中心里声明的实例权重。
+	Weight int `json:"weight"`
+	// Network 保存实例的可访问地址。
 	Network *networkInfo `json:"network"`
-	Meta    *metaInfo    `json:"meta"`
+	// Meta 里是附加业务身份信息；当前解析 endpoint 时并不直接使用全部字段。
+	Meta *metaInfo `json:"meta"`
 }
 
 type networkInfo struct {
+	// Internal 约定为 host:port 形式的内网地址。
 	Internal string `json:"internal"`
 }
 
 type metaInfo struct {
+	// 下面字段主要保留给未来更细的身份/版本路由语义扩展。
 	AppID      string `json:"app_id"`
 	InstanceID string `json:"instance_id"`
 	Version    string `json:"version"`
@@ -51,6 +56,7 @@ type metaInfo struct {
 type Provider struct {
 	// Config 保留连接参数与注册前缀配置。
 	Config config.EtcdSourceConfig
+	// client 在生产环境通常是真实 etcd client，在测试里可替换为 fake。
 	client kvGetter
 }
 
@@ -77,6 +83,7 @@ func New(cfg config.EtcdSourceConfig) (*Provider, error) {
 }
 
 func (p *Provider) Name() string {
+	// Name 主要用于日志与调试展示。
 	return "etcd"
 }
 
@@ -105,6 +112,7 @@ func (p *Provider) Resolve(ctx context.Context, target model.ServiceRef) (model.
 
 	snapshot := model.ServiceSnapshot{
 		Service: model.ServiceRef{
+			// 快照里的服务维度统一以“本次查询目标 + provider 默认值”收敛而来。
 			Service:   service,
 			Namespace: namespace,
 			Env:       env,
@@ -141,11 +149,13 @@ func decodeEndpoint(kv *mvccpb.KeyValue) (model.Endpoint, bool) {
 		return model.Endpoint{}, false
 	}
 	if node.Network == nil || strings.TrimSpace(node.Network.Internal) == "" {
+		// 没有可访问地址的注册值即使存在，也不能参与真实路由。
 		return model.Endpoint{}, false
 	}
 
 	host, port, err := splitAddress(node.Network.Internal)
 	if err != nil {
+		// 地址格式不合法时直接视为坏数据。
 		return model.Endpoint{}, false
 	}
 
@@ -164,6 +174,7 @@ func decodeEndpoint(kv *mvccpb.KeyValue) (model.Endpoint, bool) {
 
 // splitAddress 把 host:port 格式拆成内部 endpoint 字段。
 func splitAddress(raw string) (string, uint16, error) {
+	// net.SplitHostPort 能正确处理 IPv6 等更复杂地址格式。
 	host, portRaw, err := net.SplitHostPort(raw)
 	if err != nil {
 		return "", 0, err
@@ -178,6 +189,7 @@ func splitAddress(raw string) (string, uint16, error) {
 // durationFromMS 统一把毫秒值转换成 time.Duration，并提供默认值。
 func durationFromMS(value uint64) time.Duration {
 	if value == 0 {
+		// 不显式配置时回退 1 秒，和其他连接型默认值保持一致。
 		return time.Second
 	}
 	return time.Duration(value) * time.Millisecond

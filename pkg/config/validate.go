@@ -43,6 +43,7 @@ func Validate(cfg Config) error {
 		return fmt.Errorf("%w: %s", serrs.ErrInvalidSource, cfg.Source.Kind)
 	}
 
+	// 当前实现要求 ext_authz 总是可配置；真正是否放行由 fail_open 决定。
 	if cfg.Authz.Target == "" {
 		return errors.New("authz.target is required")
 	}
@@ -55,5 +56,6 @@ func Validate(cfg Config) error {
 		return errors.New("controlplane.target is required when controlplane is enabled")
 	}
 
+	// 其余字段当前没有额外硬约束，交给运行时默认值和具体组件处理。
 	return nil
 }

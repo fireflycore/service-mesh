@@ -17,6 +17,7 @@ import (
 // TestClientReceivesSnapshotAndPolicy 验证 client 能消费并缓存控制面下发状态。
 func TestClientReceivesSnapshotAndPolicy(t *testing.T) {
 	store := snapshot.NewStore()
+	// 先准备一份控制面已有状态，验证 client 启动后能否同步到本地缓存。
 	store.PutServiceSnapshot(&controlv1.ServiceSnapshot{
 		Service: &controlv1.ServiceRef{
 			Service:   "orders",
@@ -78,6 +79,7 @@ func TestClientReceivesSnapshotAndPolicy(t *testing.T) {
 
 	deadline := time.After(500 * time.Millisecond)
 	for {
+		// 这里轮询等待异步 recvLoop 把状态写进 client.State。
 		if client.State().Snapshot() != nil && client.State().RoutePolicy() != nil {
 			cancel()
 			break
@@ -106,6 +108,7 @@ func TestClientReceivesSnapshotAndPolicy(t *testing.T) {
 		t.Fatalf("unexpected snapshot address: got=%s want=%s", got, want)
 	}
 
+	// 除了缓存“最后一条消息”，client 还需要支持按 service 维度解析当前策略。
 	policy, ok := client.State().ResolveRoutePolicy(model.ServiceRef{
 		Service:   "orders",
 		Namespace: "default",

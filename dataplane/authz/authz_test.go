@@ -26,6 +26,7 @@ func (s *fakeAuthorizationServer) Check(context.Context, *authv3.CheckRequest) (
 
 // TestExtAuthzAllow 验证 ext_authz 返回 OK 时会放行。
 func TestExtAuthzAllow(t *testing.T) {
+	// 这里启动一个返回 OK 的假服务，验证 authorizer 会直接放行。
 	address, stop := startAuthzServer(t, &fakeAuthorizationServer{
 		response: &authv3.CheckResponse{
 			Status: &rpcstatus.Status{Code: int32(grpccodes.OK)},
@@ -58,6 +59,7 @@ func TestExtAuthzAllow(t *testing.T) {
 
 // TestExtAuthzDeny 验证 ext_authz deny 会被映射为鉴权失败。
 func TestExtAuthzDeny(t *testing.T) {
+	// deny 场景下，Check 应该把 ext_authz 结果映射成 error 返回给上层。
 	address, stop := startAuthzServer(t, &fakeAuthorizationServer{
 		response: &authv3.CheckResponse{
 			Status: &rpcstatus.Status{
@@ -93,6 +95,7 @@ func TestExtAuthzDeny(t *testing.T) {
 
 // TestExtAuthzFailOpen 验证 fail-open 策略在连接失败时会放行。
 func TestExtAuthzFailOpen(t *testing.T) {
+	// 这里故意指向一个不可达端口，用来验证 fail-open 的容错语义。
 	authorizer, err := NewExtAuthz(config.AuthzConfig{
 		Target:    "127.0.0.1:1",
 		TimeoutMS: 50,
@@ -120,6 +123,7 @@ func TestExtAuthzFailOpen(t *testing.T) {
 func startAuthzServer(t *testing.T, server authv3.AuthorizationServer) (string, func()) {
 	t.Helper()
 
+	// 测试里直接启动最小 gRPC 服务，避免依赖外部 ext_authz 进程。
 	grpcServer := grpc.NewServer()
 	authv3.RegisterAuthorizationServer(grpcServer, server)
 
@@ -132,6 +136,7 @@ func startAuthzServer(t *testing.T, server authv3.AuthorizationServer) (string, 
 		_ = grpcServer.Serve(listener)
 	}()
 
+	// 返回 stop 函数，保证每个测试都能主动释放端口与 goroutine。
 	return listener.Addr().String(), func() {
 		grpcServer.Stop()
 		_ = listener.Close()

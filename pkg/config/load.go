@@ -44,6 +44,7 @@ func Load(opts LoadOptions) (*Config, error) {
 	// 环境变量和 CLI 覆盖放在文件配置之后，确保本地联调时优先级更高。
 	applyEnv(&cfg)
 	applyOptions(&cfg, opts)
+	// Normalize 负责“修整 + 补默认值”，让 Validate 只聚焦合法性判断。
 	Normalize(&cfg)
 
 	if err := Validate(cfg); err != nil {
@@ -55,12 +56,14 @@ func Load(opts LoadOptions) (*Config, error) {
 
 // Render 用于把最终配置重新输出成 YAML。
 func Render(cfg Config) ([]byte, error) {
+	// Render 主要给 print-config 之类的可视化场景使用。
 	return yaml.Marshal(cfg)
 }
 
 // applyEnv 把环境变量映射到运行时配置。
 func applyEnv(cfg *Config) {
 	if v := os.Getenv("SERVICE_MESH_MODE"); v != "" {
+		// 环境变量覆盖适合容器部署或 CI 场景下做轻量配置替换。
 		cfg.Mode = v
 	}
 	if v := os.Getenv("SERVICE_MESH_SOURCE_KIND"); v != "" {
@@ -76,6 +79,7 @@ func applyEnv(cfg *Config) {
 
 // applyOptions 把 CLI 参数覆盖到配置对象。
 func applyOptions(cfg *Config, opts LoadOptions) {
+	// CLI 覆盖优先级最高，便于本地临时联调。
 	if opts.Mode != "" {
 		cfg.Mode = opts.Mode
 	}

@@ -48,10 +48,15 @@ type Params struct {
 
 // Runner 是 agent / sidecar 共用的运行时实现。
 type Runner struct {
-	cfg                *config.Config
-	params             Params
-	grpcServer         *grpc.Server
-	telemetry          *otelintegration.Providers
+	// cfg 保存全局配置，主要用于运行阶段读取控制面与 source 设置。
+	cfg *config.Config
+	// params 保存当前模式专属的监听与身份差异。
+	params Params
+	// grpcServer 是真正承载 MeshInvokeService 的本地服务端。
+	grpcServer *grpc.Server
+	// telemetry 管理全局 OTel provider 生命周期。
+	telemetry *otelintegration.Providers
+	// controlplaneClient 既负责长连接，也提供状态 overlay。
 	controlplaneClient *controlclient.Client
 }
 
@@ -67,6 +72,7 @@ func New(cfg *config.Config, params Params) (*Runner, error) {
 	// 先根据配置选择底层目录实现，例如 consul 或 etcd。
 	provider, err := source.FromConfig(cfg.Source)
 	if err != nil {
+		// 这里失败通常意味着 source.kind 不合法，或 provider 初始化参数不足。
 		return nil, err
 	}
 
@@ -78,18 +84,21 @@ func New(cfg *config.Config, params Params) (*Runner, error) {
 	// 当前鉴权统一走 ext_authz，shared runner 不区分 agent/sidecar。
 	authorizer, err := authz.NewExtAuthz(cfg.Authz)
 	if err != nil {
+		// 鉴权 client 初始化失败时，当前运行时无法进入可服务状态。
 		return nil, err
 	}
 
 	// telemetry provider 负责安装全局 OTel trace/meter provider。
 	telemetryProviders, err := otelintegration.New(context.Background(), cfg.Telemetry, "service-mesh-"+params.Mode)
 	if err != nil {
+		// telemetry 初始化失败当前直接终止启动，避免进入半可观测状态。
 		return nil, err
 	}
 
 	// emitter 是 invoke 层真正使用的最小 telemetry 句柄集合。
 	emitter, err := meshtelemetry.NewEmitter()
 	if err != nil {
+		// emitter 依赖全局 meter/tracer provider，失败时同样不继续启动。
 		return nil, err
 	}
 
@@ -101,6 +110,7 @@ func New(cfg *config.Config, params Params) (*Runner, error) {
 		// sidecar 会把自己的本地服务身份注入到 invoke 入口，
 		// 这样未显式填写 caller/target 维度时也能得到稳定默认值。
 		invokeOptions.LocalIdentity = &invoke.LocalIdentity{
+			// 当前阶段 AppID 与 ServiceName 保持一致，后续如有独立 app_id 再拆分。
 			AppID:     params.ServiceName,
 			Service:   params.ServiceName,
 			Namespace: strings.TrimSpace(params.Namespace),
@@ -160,6 +170,7 @@ func (r *Runner) Run(ctx context.Context) error {
 	}
 
 	attrs := []slog.Attr{
+		// 这些字段是所有模式都会打印的最小运行时身份。
 		slog.String("listen_network", r.params.Listen.Network),
 		slog.String("listen_address", r.params.Listen.Address),
 		slog.String("mode", r.params.Mode),
@@ -179,6 +190,7 @@ func (r *Runner) Run(ctx context.Context) error {
 
 	// GracefulStop 会优先等待现有请求处理完成。
 	r.grpcServer.GracefulStop()
+	// 这里不把 ctx.Err() 继续向上返回，避免正常停止被调用方误判成失败。
 	slog.Info("service-mesh runtime stopped", slog.String("mode", r.params.Mode))
 	return nil
 }
@@ -191,6 +203,8 @@ func (r *Runner) runControlPlane(ctx context.Context) {
 
 	// identity 是 dataplane 在控制面视角下的稳定身份。
 	identity := &controlv1.DataplaneIdentity{
+		// dataplane_id 更偏实例级唯一标识；
+		// service/node/namespace/env 则更偏路由和策略匹配维度。
 		DataplaneId: r.dataplaneID(),
 		Mode:        r.params.Mode,
 		NodeId:      r.nodeID(),
@@ -223,6 +237,7 @@ func (r *Runner) listen() (net.Listener, func(), error) {
 
 	listener, err := net.Listen(network, address)
 	if err != nil {
+		// bind 失败通常意味着地址占用、权限不足或 network/address 组合不合法。
 		return nil, nil, err
 	}
 
@@ -262,6 +277,7 @@ func (r *Runner) nodeID() string {
 		// sidecar 绑定到具体实例时，nodeID 也沿用实例 ID，便于日志关联。
 		return r.params.InstanceID
 	}
+	// agent 没有实例 ID 时，nodeID 退回主机名，表示“所在节点”视角。
 	return hostname()
 }
 
@@ -282,6 +298,7 @@ func (r *Runner) namespace() string {
 
 // env 返回当前运行时所在环境。
 func (r *Runner) env() string {
+	// env 目前只对 sidecar 更常见；agent 没填时自然回退为空字符串。
 	return strings.TrimSpace(r.params.Env)
 }
 

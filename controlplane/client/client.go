@@ -30,6 +30,7 @@ type State struct {
 // SetSnapshot 写入并覆盖指定服务的最新快照。
 func (s *State) SetSnapshot(snapshot *controlv1.ServiceSnapshot) {
 	if snapshot == nil || snapshot.GetService() == nil {
+		// 控制面偶发下发空消息时，直接丢弃比写入脏状态更安全。
 		return
 	}
 
@@ -135,6 +136,7 @@ func (c *Client) Run(ctx context.Context, identity *controlv1.DataplaneIdentity)
 	}
 
 	backoff := heartbeatInterval(c.cfg)
+	// backoff 目前直接复用 heartbeat 配置，保持连接与保活节奏大致一致。
 	for {
 		// 每一轮循环都代表“一次完整连接生命周期”。
 		err := c.connectOnce(ctx, identity)
@@ -168,6 +170,7 @@ func (c *Client) connectOnce(ctx context.Context, identity *controlv1.DataplaneI
 	conn, err := grpc.DialContext(
 		dialCtx,
 		c.cfg.Target,
+		// 当前控制面链路默认走明文，后续如需要再扩展 TLS。
 		grpc.WithTransportCredentials(insecure.NewCredentials()),
 		grpc.WithStatsHandler(otelgrpc.NewClientHandler()),
 	)
@@ -179,6 +182,7 @@ func (c *Client) connectOnce(ctx context.Context, identity *controlv1.DataplaneI
 	// Connect 建立的是控制面双向流，而不是普通 unary 调用。
 	stream, err := controlv1.NewMeshControlPlaneServiceClient(conn).Connect(ctx)
 	if err != nil {
+		// 连接已建成但 stream 初始化失败，通常意味着服务端不可用或协议不匹配。
 		return err
 	}
 
@@ -197,6 +201,7 @@ func (c *Client) connectOnce(ctx context.Context, identity *controlv1.DataplaneI
 	// 接收循环单独放 goroutine，主循环才能同时处理心跳和 ctx 取消。
 	recvErrCh := make(chan error, 1)
 	go func() {
+		// recvLoop 的唯一职责是消费服务端消息并写入本地 State。
 		recvErrCh <- c.recvLoop(stream)
 	}()
 
@@ -210,6 +215,7 @@ func (c *Client) connectOnce(ctx context.Context, identity *controlv1.DataplaneI
 				// 对端正常关闭流，视为本轮连接自然结束。
 				return nil
 			}
+			// 其余错误都交给外层 Run 做重连决策。
 			return err
 		case <-ticker.C:
 			// 当前 heartbeat 只负责维持活性，不承载额外状态。
@@ -247,6 +253,8 @@ func (c *Client) recvLoop(stream grpc.BidiStreamingClient[controlv1.ConnectReque
 		case *controlv1.ConnectResponse_RoutePolicy:
 			// 路由策略主要影响 invoke timeout/retry。
 			c.state.SetRoutePolicy(body.RoutePolicy)
+		default:
+			// 未识别消息当前直接忽略，保持 client 对协议新增字段的前向兼容。
 		}
 	}
 }
@@ -299,6 +307,7 @@ func serviceKey(namespace, env, service string) string {
 	env = strings.TrimSpace(env)
 	service = strings.TrimSpace(service)
 	if env == "" {
+		// 历史上没有 env 维度时，键格式就是 namespace/service。
 		return namespace + "/" + service
 	}
 	return namespace + "/" + env + "/" + service

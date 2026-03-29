@@ -61,6 +61,7 @@ func New(ctx context.Context, cfg config.TelemetryConfig, serviceName string) (*
 		)
 		// 安装全局 tracer provider 后，业务层通过 otel.Tracer() 即可直接取用。
 		otelapi.SetTracerProvider(providers.traceProvider)
+		// 同时安装传播器，后续若接入跨服务 trace 透传会直接复用。
 		otelapi.SetTextMapPropagator(propagation.NewCompositeTextMapPropagator(
 			propagation.TraceContext{},
 			propagation.Baggage{},
@@ -94,6 +95,7 @@ func (p *Providers) Shutdown(ctx context.Context) error {
 		shutdownErr = errors.Join(shutdownErr, p.traceProvider.Shutdown(ctx))
 	}
 	if p.meterProvider != nil {
+		// meter provider 也要参与统一关闭，确保周期性 reader flush 完成。
 		shutdownErr = errors.Join(shutdownErr, p.meterProvider.Shutdown(ctx))
 	}
 

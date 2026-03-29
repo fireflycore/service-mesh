@@ -14,6 +14,7 @@ import (
 // TestServerConnectSendsSnapshotAndPolicy 验证 register 后会收到基础控制面状态。
 func TestServerConnectSendsSnapshotAndPolicy(t *testing.T) {
 	store := snapshot.NewStore()
+	// 先把快照和策略预灌进 store，模拟一个已有控制面状态的场景。
 	store.PutServiceSnapshot(&controlv1.ServiceSnapshot{
 		Service: &controlv1.ServiceRef{
 			Service:   "orders",
@@ -67,6 +68,7 @@ func TestServerConnectSendsSnapshotAndPolicy(t *testing.T) {
 		t.Fatalf("connect failed: %v", err)
 	}
 
+	// register 后，服务端应该立刻回放当前服务对应的快照和策略。
 	if err := stream.Send(&controlv1.ConnectRequest{
 		Body: &controlv1.ConnectRequest_Register{
 			Register: &controlv1.DataplaneRegister{
@@ -88,6 +90,7 @@ func TestServerConnectSendsSnapshotAndPolicy(t *testing.T) {
 	if err != nil {
 		t.Fatalf("recv snapshot failed: %v", err)
 	}
+	// 按当前实现，第一条响应应该是 ServiceSnapshot。
 	if first.GetServiceSnapshot() == nil {
 		t.Fatalf("expected service snapshot response")
 	}
@@ -96,6 +99,7 @@ func TestServerConnectSendsSnapshotAndPolicy(t *testing.T) {
 	if err != nil {
 		t.Fatalf("recv route policy failed: %v", err)
 	}
+	// 第二条响应应该是 RoutePolicy，用于覆盖 invoke timeout/retry。
 	if second.GetRoutePolicy() == nil {
 		t.Fatalf("expected route policy response")
 	}

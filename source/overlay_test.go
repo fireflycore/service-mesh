@@ -8,6 +8,7 @@ import (
 )
 
 type fakeProvider struct {
+	// snapshot 是底层目录源会返回的预置结果。
 	snapshot model.ServiceSnapshot
 }
 
@@ -22,6 +23,7 @@ func (p fakeProvider) Resolve(context.Context, model.ServiceRef) (model.ServiceS
 }
 
 type fakeSnapshotResolver struct {
+	// snapshot 是控制面优先覆盖时应返回的结果。
 	snapshot model.ServiceSnapshot
 	ok       bool
 }
@@ -33,6 +35,7 @@ func (r fakeSnapshotResolver) ResolveSnapshot(target model.ServiceRef) (model.Se
 
 // TestOverlayUsesControlPlaneSnapshotFirst 验证 overlay 的优先级是 controlplane first。
 func TestOverlayUsesControlPlaneSnapshotFirst(t *testing.T) {
+	// 同时准备“底层目录快照”和“控制面覆盖快照”，验证谁优先生效。
 	overlay := NewOverlay(
 		fakeProvider{
 			snapshot: model.ServiceSnapshot{
@@ -58,6 +61,7 @@ func TestOverlayUsesControlPlaneSnapshotFirst(t *testing.T) {
 		t.Fatalf("resolve failed: %v", err)
 	}
 
+	// 期望拿到的是控制面快照地址 10.0.0.2，而不是底层目录的 10.0.0.1。
 	if got, want := snapshot.Endpoints[0].Address, "10.0.0.2"; got != want {
 		t.Fatalf("unexpected overlay endpoint: got=%s want=%s", got, want)
 	}

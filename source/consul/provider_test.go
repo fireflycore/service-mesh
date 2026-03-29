@@ -21,6 +21,7 @@ func (f fakeHealth) Service(service, tag string, passingOnly bool, q *api.QueryO
 
 // TestProviderResolve 验证 Consul provider 能把健康实例转成内部快照。
 func TestProviderResolve(t *testing.T) {
+	// 这里直接绕过真实 Consul client，专注验证“ServiceEntry -> Endpoint”的转换逻辑。
 	provider := &Provider{
 		Config: config.ConsulSourceConfig{
 			Address: "127.0.0.1:8500",
@@ -50,6 +51,7 @@ func TestProviderResolve(t *testing.T) {
 	if got, want := len(snapshot.Endpoints), 1; got != want {
 		t.Fatalf("unexpected endpoint count: got=%d want=%d", got, want)
 	}
+	// 最关键的断言是地址和端口是否被正确抽取进内部快照。
 	if got, want := snapshot.Endpoints[0].Address, "10.0.0.12"; got != want {
 		t.Fatalf("unexpected endpoint address: got=%s want=%s", got, want)
 	}

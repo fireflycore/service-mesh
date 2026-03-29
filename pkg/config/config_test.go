@@ -5,6 +5,7 @@ import "testing"
 // TestDefaultConfigIsValid 验证默认配置经过规范化后可以直接运行。
 func TestDefaultConfigIsValid(t *testing.T) {
 	cfg := Default()
+	// 先走 Normalize，确保测试和真实加载链路一致。
 	Normalize(&cfg)
 
 	if err := Validate(cfg); err != nil {
@@ -15,6 +16,7 @@ func TestDefaultConfigIsValid(t *testing.T) {
 // TestInvalidModeFails 验证非法 mode 会被拦截。
 func TestInvalidModeFails(t *testing.T) {
 	cfg := Default()
+	// 故意写一个不存在的模式名，验证 mode 校验分支。
 	cfg.Mode = "bad"
 
 	if err := Validate(cfg); err == nil {
@@ -25,6 +27,7 @@ func TestInvalidModeFails(t *testing.T) {
 // TestInvokePerTryTimeoutCannotExceedTimeout 验证调用预算约束有效。
 func TestInvokePerTryTimeoutCannotExceedTimeout(t *testing.T) {
 	cfg := Default()
+	// 构造一个前后矛盾的调用预算组合。
 	cfg.Invoke.TimeoutMS = 100
 	cfg.Invoke.PerTryTimeoutMS = 200
 
@@ -37,6 +40,7 @@ func TestInvokePerTryTimeoutCannotExceedTimeout(t *testing.T) {
 func TestSidecarRequiresServiceName(t *testing.T) {
 	cfg := Default()
 	cfg.Mode = "sidecar"
+	// sidecar 身份缺 service_name 时，后续 controlplane register 和日志身份都会失真。
 	cfg.Runtime.Sidecar.ServiceName = ""
 
 	if err := Validate(cfg); err == nil {

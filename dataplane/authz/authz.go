@@ -18,6 +18,7 @@ var ErrPermissionDenied = errors.New("authz permission denied")
 
 // Authorizer 定义 Invoke 前的统一鉴权接口。
 type Authorizer interface {
+	// Check 返回 nil 表示放行；返回 error 表示调用应被拒绝或鉴权链路异常。
 	Check(ctx context.Context, req *invokev1.UnaryInvokeRequest) error
 }
 
@@ -47,6 +48,7 @@ type ExtAuthz struct {
 
 // NewExtAuthz 创建一个基于配置的 ext_authz authorizer。
 func NewExtAuthz(cfg config.AuthzConfig) (*ExtAuthz, error) {
+	// 这里把 config.AuthzConfig 进一步收敛成可直接调用的 gRPC client。
 	client, err := extauthz.New(cfg)
 	if err != nil {
 		return nil, err
@@ -59,6 +61,7 @@ func NewExtAuthz(cfg config.AuthzConfig) (*ExtAuthz, error) {
 
 // Check 执行一次外部鉴权。
 func (a *ExtAuthz) Check(ctx context.Context, req *invokev1.UnaryInvokeRequest) error {
+	// 真实 ext_authz 调用在 integration 层完成，这里只关心结果怎么映射回 mesh 语义。
 	resp, err := a.client.Check(ctx, req)
 	if err != nil {
 		if a.client.FailOpen() {
@@ -69,6 +72,7 @@ func (a *ExtAuthz) Check(ctx context.Context, req *invokev1.UnaryInvokeRequest) 
 	}
 
 	if resp.GetStatus() == nil {
+		// ext_authz 约定里 status 是核心结果字段；为空时要么放行，要么视为异常。
 		if a.client.FailOpen() {
 			// 即使响应结构异常，只要 fail-open 打开，也继续放行。
 			return nil
@@ -90,7 +94,9 @@ func statusMessage(status *rpcstatus.Status) string {
 		return "empty authz status"
 	}
 	if strings.TrimSpace(status.GetMessage()) != "" {
+		// 优先使用服务端给出的 message，通常可读性更高。
 		return status.GetMessage()
 	}
+	// 没有 message 时回退到标准 gRPC code 名称。
 	return grpccodes.Code(status.GetCode()).String()
 }

@@ -12,15 +12,19 @@ import (
 	"github.com/fireflycore/service-mesh/dataplane/balancer"
 	"github.com/fireflycore/service-mesh/dataplane/invoke"
 	"github.com/fireflycore/service-mesh/dataplane/resolver"
+	meshtelemetry "github.com/fireflycore/service-mesh/dataplane/telemetry"
 	"github.com/fireflycore/service-mesh/dataplane/transport"
+	otelintegration "github.com/fireflycore/service-mesh/integration/otel"
 	"github.com/fireflycore/service-mesh/pkg/config"
 	"github.com/fireflycore/service-mesh/source"
+	"go.opentelemetry.io/contrib/instrumentation/google.golang.org/grpc/otelgrpc"
 	"google.golang.org/grpc"
 )
 
 type Runner struct {
 	cfg        *config.Config
 	grpcServer *grpc.Server
+	telemetry  *otelintegration.Providers
 }
 
 // New 创建 agent 运行时，并把当前版本需要的核心依赖装配起来。
@@ -41,23 +45,43 @@ func New(cfg *config.Config) (*Runner, error) {
 		return nil, err
 	}
 
+	telemetryProviders, err := otelintegration.New(context.Background(), cfg.Telemetry, "service-mesh-agent")
+	if err != nil {
+		return nil, err
+	}
+
+	emitter, err := meshtelemetry.NewEmitter()
+	if err != nil {
+		return nil, err
+	}
+
+	invokeOptions := invoke.OptionsFromConfig(cfg.Invoke)
+	invokeOptions.Telemetry = emitter
+
 	invokeService := invoke.NewService(
 		authorizer,
 		resolver.New(provider, balancer.NewRoundRobin()),
 		transport.NewGRPC(),
-		invoke.OptionsFromConfig(cfg.Invoke),
+		invokeOptions,
 	)
 
-	grpcServer := grpc.NewServer()
+	grpcServer := grpc.NewServer(grpc.StatsHandler(otelgrpc.NewServerHandler()))
 	invokev1.RegisterMeshInvokeServiceServer(grpcServer, invokeService)
 
 	return &Runner{
 		cfg:        cfg,
 		grpcServer: grpcServer,
+		telemetry:  telemetryProviders,
 	}, nil
 }
 
 func (r *Runner) Run(ctx context.Context) error {
+	defer func() {
+		if r.telemetry != nil {
+			_ = r.telemetry.Shutdown(context.Background())
+		}
+	}()
+
 	// listen 在 Run 内执行，而不是在 New 时执行。
 	//
 	// 这样可以确保：

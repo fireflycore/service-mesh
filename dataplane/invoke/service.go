@@ -8,9 +8,11 @@ import (
 
 	invokev1 "github.com/fireflycore/service-mesh/.gen/proto/acme/invoke/v1"
 	"github.com/fireflycore/service-mesh/dataplane/authz"
+	meshtelemetry "github.com/fireflycore/service-mesh/dataplane/telemetry"
 	"github.com/fireflycore/service-mesh/dataplane/transport"
 	"github.com/fireflycore/service-mesh/pkg/config"
 	"github.com/fireflycore/service-mesh/pkg/model"
+	otelcodes "go.opentelemetry.io/otel/codes"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 )
@@ -30,6 +32,7 @@ type Options struct {
 	RetryMaxAttempts uint32
 	RetryBackoff     time.Duration
 	RetryableCodes   map[codes.Code]struct{}
+	Telemetry        *meshtelemetry.Emitter
 }
 
 // Service 是本地 MeshInvokeService 的最小实现。
@@ -92,7 +95,18 @@ func (s *Service) UnaryInvoke(ctx context.Context, req *invokev1.UnaryInvokeRequ
 		defer cancel()
 	}
 
-	if err := s.authorizer.Check(callCtx, req); err != nil {
+	s.options.Telemetry.RecordRequest(callCtx)
+	spanCtx, span := s.options.Telemetry.StartInvoke(callCtx, req)
+	defer span.End()
+	start := time.Now()
+	defer func() {
+		s.options.Telemetry.RecordLatency(spanCtx, time.Since(start))
+	}()
+
+	if err := s.authorizer.Check(spanCtx, req); err != nil {
+		span.RecordError(err)
+		span.SetStatus(otelcodes.Error, "authz failed")
+		s.options.Telemetry.RecordFailure(spanCtx, "authz")
 		return nil, status.Errorf(codes.PermissionDenied, "authz check failed: %v", err)
 	}
 
@@ -110,7 +124,7 @@ func (s *Service) UnaryInvoke(ctx context.Context, req *invokev1.UnaryInvokeRequ
 
 	var lastErr error
 	for attempt := uint32(1); attempt <= attempts; attempt++ {
-		attemptCtx := callCtx
+		attemptCtx := spanCtx
 		attemptCancel := func() {}
 		if s.options.PerTryTimeout > 0 {
 			attemptCtx, attemptCancel = context.WithTimeout(callCtx, s.options.PerTryTimeout)
@@ -123,8 +137,10 @@ func (s *Service) UnaryInvoke(ctx context.Context, req *invokev1.UnaryInvokeRequ
 			resp, invokeErr := s.transport.Invoke(attemptCtx, endpoint, req)
 			if invokeErr == nil {
 				attemptCancel()
+				span.SetStatus(otelcodes.Ok, "invoke succeeded")
 				return resp, nil
 			}
+			span.RecordError(invokeErr)
 			lastErr = invokeErr
 		}
 		attemptCancel()
@@ -132,13 +148,14 @@ func (s *Service) UnaryInvoke(ctx context.Context, req *invokev1.UnaryInvokeRequ
 		if !s.shouldRetry(lastErr, attempt, attempts) {
 			break
 		}
+		s.options.Telemetry.RecordRetry(spanCtx, int64(attempt))
 
 		if s.options.RetryBackoff > 0 {
 			timer := time.NewTimer(s.options.RetryBackoff)
 			select {
-			case <-callCtx.Done():
+			case <-spanCtx.Done():
 				timer.Stop()
-				lastErr = callCtx.Err()
+				lastErr = spanCtx.Err()
 				attempt = attempts
 			case <-timer.C:
 			}
@@ -146,11 +163,20 @@ func (s *Service) UnaryInvoke(ctx context.Context, req *invokev1.UnaryInvokeRequ
 	}
 
 	if errors.Is(lastErr, context.Canceled) {
+		span.RecordError(lastErr)
+		span.SetStatus(otelcodes.Error, "invoke canceled")
+		s.options.Telemetry.RecordFailure(spanCtx, "canceled")
 		return nil, status.Error(codes.Canceled, lastErr.Error())
 	}
 	if errors.Is(lastErr, context.DeadlineExceeded) {
+		span.RecordError(lastErr)
+		span.SetStatus(otelcodes.Error, "invoke deadline exceeded")
+		s.options.Telemetry.RecordFailure(spanCtx, "deadline_exceeded")
 		return nil, status.Error(codes.DeadlineExceeded, lastErr.Error())
 	}
+	span.RecordError(lastErr)
+	span.SetStatus(otelcodes.Error, "invoke failed")
+	s.options.Telemetry.RecordFailure(spanCtx, "invoke")
 	return nil, status.Errorf(codes.Unavailable, "invoke target failed: %v", lastErr)
 }
 
@@ -187,6 +213,9 @@ func normalizeOptions(options Options) Options {
 			codes.DeadlineExceeded:  {},
 			codes.ResourceExhausted: {},
 		}
+	}
+	if options.Telemetry == nil {
+		options.Telemetry = meshtelemetry.NewNoopEmitter()
 	}
 	return options
 }

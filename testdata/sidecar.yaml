@@ -1,0 +1,23 @@
+mode: sidecar
+
+runtime:
+  sidecar:
+    listen:
+      network: tcp
+      address: 127.0.0.1:19091
+    service_name: config
+    instance_id: config-1
+
+source:
+  kind: etcd
+  etcd:
+    endpoints:
+      - 127.0.0.1:2379
+    namespace: /microservice/lhdht
+
+authz:
+  target: 127.0.0.1:9001
+
+controlplane:
+  enabled: true
+  target: 127.0.0.1:19080

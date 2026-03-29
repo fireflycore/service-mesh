@@ -42,6 +42,10 @@ service
   - 接入真实 `ext_authz client`
   - 实现 `fail-close / fail-open`
   - 实现 Authz timeout 与错误处理
+- 第五版当前范围已完成：
+  - 接入真实 `etcd source`
+  - 输出统一 `ServiceSnapshot`
+  - 与 `consul source` 保持一致的内部快照语义
 
 ## 设计原则
 

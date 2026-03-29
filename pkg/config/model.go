@@ -3,10 +3,19 @@ package config
 type Config struct {
 	Mode         string             `yaml:"mode"`
 	Runtime      RuntimeConfig      `yaml:"runtime"`
+	Invoke       InvokeConfig       `yaml:"invoke"`
 	Source       SourceConfig       `yaml:"source"`
 	Authz        AuthzConfig        `yaml:"authz"`
 	ControlPlane ControlPlaneConfig `yaml:"controlplane"`
 	Telemetry    TelemetryConfig    `yaml:"telemetry"`
+}
+
+type InvokeConfig struct {
+	TimeoutMS        uint64   `yaml:"timeout_ms"`
+	PerTryTimeoutMS  uint64   `yaml:"per_try_timeout_ms"`
+	RetryMaxAttempts uint32   `yaml:"retry_max_attempts"`
+	RetryBackoffMS   uint64   `yaml:"retry_backoff_ms"`
+	RetryableCodes   []string `yaml:"retryable_codes"`
 }
 
 type RuntimeConfig struct {

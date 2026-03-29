@@ -38,6 +38,9 @@ func Validate(cfg Config) error {
 	if cfg.Authz.Target == "" {
 		return errors.New("authz.target is required")
 	}
+	if cfg.Invoke.PerTryTimeoutMS > cfg.Invoke.TimeoutMS {
+		return errors.New("invoke.per_try_timeout_ms cannot be greater than invoke.timeout_ms")
+	}
 	if cfg.ControlPlane.Enabled && cfg.ControlPlane.Target == "" {
 		return errors.New("controlplane.target is required when controlplane is enabled")
 	}

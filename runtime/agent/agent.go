@@ -45,6 +45,7 @@ func New(cfg *config.Config) (*Runner, error) {
 		authorizer,
 		resolver.New(provider, balancer.NewRoundRobin()),
 		transport.NewGRPC(),
+		invoke.OptionsFromConfig(cfg.Invoke),
 	)
 
 	grpcServer := grpc.NewServer()

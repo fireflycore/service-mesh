@@ -2,8 +2,11 @@ package invoke
 
 import (
 	"context"
+	"errors"
 	"net"
+	"sync"
 	"testing"
+	"time"
 
 	invokev1 "github.com/fireflycore/service-mesh/.gen/proto/acme/invoke/v1"
 	"github.com/fireflycore/service-mesh/dataplane/authz"
@@ -98,6 +101,33 @@ func TestServiceUnaryInvoke(t *testing.T) {
 	}
 }
 
+type flakyTransport struct {
+	mu       sync.Mutex
+	attempts int
+}
+
+func (t *flakyTransport) Invoke(_ context.Context, endpoint model.Endpoint, req *invokev1.UnaryInvokeRequest) (*invokev1.UnaryInvokeResponse, error) {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+
+	t.attempts++
+	if t.attempts == 1 {
+		return nil, status.Error(codes.Unavailable, "temporary unavailable")
+	}
+
+	return &invokev1.UnaryInvokeResponse{
+		Payload: append([]byte(endpoint.Address+":"), req.GetPayload()...),
+		Codec:   req.GetCodec(),
+	}, nil
+}
+
+type slowTransport struct{}
+
+func (t *slowTransport) Invoke(ctx context.Context, _ model.Endpoint, _ *invokev1.UnaryInvokeRequest) (*invokev1.UnaryInvokeResponse, error) {
+	<-ctx.Done()
+	return nil, ctx.Err()
+}
+
 func TestServiceUnaryInvokeRejectsInvalidRequest(t *testing.T) {
 	svc := NewService(
 		authz.NewAllowAll(),
@@ -115,6 +145,100 @@ func TestServiceUnaryInvokeRejectsInvalidRequest(t *testing.T) {
 		t.Fatalf("expected grpc status error: %v", err)
 	}
 	if statusErr.Code() != codes.InvalidArgument {
+		t.Fatalf("unexpected status code: %s", statusErr.Code())
+	}
+}
+
+func TestServiceUnaryInvokeRetriesOnUnavailable(t *testing.T) {
+	transport := &flakyTransport{}
+
+	svc := NewService(
+		authz.NewAllowAll(),
+		resolver.New(memory.New(map[string]model.ServiceSnapshot{
+			"default/dev/orders": {
+				Service: model.ServiceRef{
+					Service:   "orders",
+					Namespace: "default",
+					Env:       "dev",
+				},
+				Endpoints: []model.Endpoint{{Address: "127.0.0.1", Port: 8080, Weight: 1}},
+			},
+		}), balancer.NewRoundRobin()),
+		transport,
+		Options{
+			Timeout:          time.Second,
+			PerTryTimeout:    200 * time.Millisecond,
+			RetryMaxAttempts: 2,
+			RetryBackoff:     0,
+			RetryableCodes: map[codes.Code]struct{}{
+				codes.Unavailable: {},
+			},
+		},
+	)
+
+	resp, err := svc.UnaryInvoke(context.Background(), &invokev1.UnaryInvokeRequest{
+		Target: &invokev1.ServiceRef{
+			Service:   "orders",
+			Namespace: "default",
+			Env:       "dev",
+		},
+		Method:  "/acme.orders.v1.OrderService/GetOrder",
+		Payload: []byte("hello"),
+		Codec:   "json",
+	})
+	if err != nil {
+		t.Fatalf("expected retry to succeed: %v", err)
+	}
+	if got, want := transport.attempts, 2; got != want {
+		t.Fatalf("unexpected retry count: got=%d want=%d", got, want)
+	}
+	if got, want := string(resp.GetPayload()), "127.0.0.1:hello"; got != want {
+		t.Fatalf("unexpected payload: got=%s want=%s", got, want)
+	}
+}
+
+func TestServiceUnaryInvokeTimeout(t *testing.T) {
+	svc := NewService(
+		authz.NewAllowAll(),
+		resolver.New(memory.New(map[string]model.ServiceSnapshot{
+			"default/dev/orders": {
+				Service: model.ServiceRef{
+					Service:   "orders",
+					Namespace: "default",
+					Env:       "dev",
+				},
+				Endpoints: []model.Endpoint{{Address: "127.0.0.1", Port: 8080, Weight: 1}},
+			},
+		}), balancer.NewRoundRobin()),
+		&slowTransport{},
+		Options{
+			Timeout:          50 * time.Millisecond,
+			PerTryTimeout:    20 * time.Millisecond,
+			RetryMaxAttempts: 1,
+			RetryBackoff:     0,
+			RetryableCodes: map[codes.Code]struct{}{
+				codes.DeadlineExceeded: {},
+			},
+		},
+	)
+
+	_, err := svc.UnaryInvoke(context.Background(), &invokev1.UnaryInvokeRequest{
+		Target: &invokev1.ServiceRef{
+			Service:   "orders",
+			Namespace: "default",
+			Env:       "dev",
+		},
+		Method: "/acme.orders.v1.OrderService/GetOrder",
+	})
+	if err == nil {
+		t.Fatal("expected timeout error")
+	}
+
+	statusErr, ok := status.FromError(err)
+	if !ok {
+		t.Fatalf("expected grpc status error: %v", err)
+	}
+	if !errors.Is(statusErr.Err(), context.DeadlineExceeded) && statusErr.Code() != codes.DeadlineExceeded {
 		t.Fatalf("unexpected status code: %s", statusErr.Code())
 	}
 }

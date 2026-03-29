@@ -26,6 +26,18 @@ func Normalize(cfg *Config) {
 	if cfg.Authz.TimeoutMS == 0 {
 		cfg.Authz.TimeoutMS = 500
 	}
+	if cfg.Invoke.TimeoutMS == 0 {
+		cfg.Invoke.TimeoutMS = 1500
+	}
+	if cfg.Invoke.PerTryTimeoutMS == 0 {
+		cfg.Invoke.PerTryTimeoutMS = 500
+	}
+	if cfg.Invoke.RetryMaxAttempts == 0 {
+		cfg.Invoke.RetryMaxAttempts = 2
+	}
+	if cfg.Invoke.RetryBackoffMS == 0 {
+		cfg.Invoke.RetryBackoffMS = 50
+	}
 	if cfg.ControlPlane.HeartbeatIntervalMS == 0 {
 		cfg.ControlPlane.HeartbeatIntervalMS = 3000
 	}
@@ -40,5 +52,12 @@ func Normalize(cfg *Config) {
 	}
 	if cfg.Runtime.Sidecar.Listen.Network == "" {
 		cfg.Runtime.Sidecar.Listen.Network = "tcp"
+	}
+	if len(cfg.Invoke.RetryableCodes) == 0 {
+		cfg.Invoke.RetryableCodes = []string{
+			"unavailable",
+			"deadline_exceeded",
+			"resource_exhausted",
+		}
 	}
 }

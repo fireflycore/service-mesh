@@ -21,6 +21,17 @@ func Default() Config {
 				},
 			},
 		},
+		Invoke: InvokeConfig{
+			TimeoutMS:        1500,
+			PerTryTimeoutMS:  500,
+			RetryMaxAttempts: 2,
+			RetryBackoffMS:   50,
+			RetryableCodes: []string{
+				"unavailable",
+				"deadline_exceeded",
+				"resource_exhausted",
+			},
+		},
 		Source: SourceConfig{
 			Kind: model.SourceConsul,
 			Consul: ConsulSourceConfig{

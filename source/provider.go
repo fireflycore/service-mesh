@@ -17,15 +17,15 @@ type Provider interface {
 
 // FromConfig 根据配置选择具体的目录来源实现。
 //
-// 当前第三版优先支持：
+// 当前第五版优先支持：
 // - 真实 consul source
-// - etcd 先保留接口与占位实现
+// - 真实 etcd source
 func FromConfig(cfg config.SourceConfig) (Provider, error) {
 	switch cfg.Kind {
 	case model.SourceConsul:
 		return consul.New(cfg.Consul)
 	case model.SourceEtcd:
-		return etcd.New(cfg.Etcd), nil
+		return etcd.New(cfg.Etcd)
 	default:
 		return nil, fmt.Errorf("unsupported source kind: %s", cfg.Kind)
 	}

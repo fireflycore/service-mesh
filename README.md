@@ -46,6 +46,10 @@ service
   - 接入真实 `etcd source`
   - 输出统一 `ServiceSnapshot`
   - 与 `consul source` 保持一致的内部快照语义
+- 第六版当前范围已完成：
+  - 实现 `timeout`
+  - 实现 `retry` 基础能力
+  - 强化调用错误处理
 
 ## 设计原则
 

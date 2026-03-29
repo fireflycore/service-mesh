@@ -23,6 +23,13 @@ type Runner struct {
 	grpcServer *grpc.Server
 }
 
+// New 创建 agent 运行时，并把当前版本需要的核心依赖装配起来。
+//
+// 当前第三版装配链路是：
+// - source 根据配置选择目录来源
+// - resolver 基于 source + balancer 解析目标实例
+// - invoke service 作为本地 gRPC 入口
+// - transport 负责把请求真正发到下游
 func New(cfg *config.Config) (*Runner, error) {
 	provider, err := source.FromConfig(cfg.Source)
 	if err != nil {
@@ -32,7 +39,7 @@ func New(cfg *config.Config) (*Runner, error) {
 	invokeService := invoke.NewService(
 		authz.NewAllowAll(),
 		resolver.New(provider, balancer.NewRoundRobin()),
-		transport.NewNotImplemented(),
+		transport.NewGRPC(),
 	)
 
 	grpcServer := grpc.NewServer()
@@ -45,6 +52,11 @@ func New(cfg *config.Config) (*Runner, error) {
 }
 
 func (r *Runner) Run(ctx context.Context) error {
+	// listen 在 Run 内执行，而不是在 New 时执行。
+	//
+	// 这样可以确保：
+	// - 构造对象阶段不产生副作用
+	// - 测试和 CLI 校验阶段不会提前占用端口或创建 UDS 文件
 	listener, cleanup, err := r.listen()
 	if err != nil {
 		return err
@@ -84,6 +96,9 @@ func (r *Runner) listen() (net.Listener, func(), error) {
 	address := r.cfg.Runtime.Agent.Listen.Address
 
 	if network == "unix" {
+		// UDS 模式下需要先清理旧 sock 文件。
+		//
+		// 否则上一次异常退出留下的文件会导致本次启动直接失败。
 		if err := os.RemoveAll(address); err != nil {
 			return nil, nil, err
 		}

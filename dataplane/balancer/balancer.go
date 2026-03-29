@@ -11,6 +11,9 @@ type Picker interface {
 	Pick(snapshot model.ServiceSnapshot) (model.Endpoint, error)
 }
 
+// RoundRobin 是当前阶段最简单、最稳定的 endpoint 选择策略。
+//
+// 它按 service 维度维护游标，确保同一个服务的多次请求能够轮询不同实例。
 type RoundRobin struct {
 	mu      sync.Mutex
 	current map[string]uint64
@@ -22,6 +25,7 @@ func NewRoundRobin() *RoundRobin {
 	}
 }
 
+// Pick 从快照中挑选一个 endpoint。
 func (b *RoundRobin) Pick(snapshot model.ServiceSnapshot) (model.Endpoint, error) {
 	if len(snapshot.Endpoints) == 0 {
 		return model.Endpoint{}, errors.New("no endpoints available")

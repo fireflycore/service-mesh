@@ -82,7 +82,7 @@ func TestServiceUnaryInvoke(t *testing.T) {
 			Namespace: "default",
 			Env:       "dev",
 		},
-		Method:  "GetOrder",
+		Method:  "/acme.orders.v1.OrderService/GetOrder",
 		Payload: []byte("hello"),
 		Codec:   "json",
 	})

@@ -13,6 +13,11 @@ type Provider struct {
 	snapshots map[string]model.ServiceSnapshot
 }
 
+// New 创建一个纯内存 provider。
+//
+// 这个实现主要用于单元测试：
+// - 不依赖外部注册中心
+// - 可以稳定构造各种服务目录场景
 func New(snapshots map[string]model.ServiceSnapshot) *Provider {
 	cloned := make(map[string]model.ServiceSnapshot, len(snapshots))
 	for key, value := range snapshots {
@@ -25,6 +30,7 @@ func (p *Provider) Name() string {
 	return "memory"
 }
 
+// Resolve 从内存快照里直接返回目标服务。
 func (p *Provider) Resolve(_ context.Context, target model.ServiceRef) (model.ServiceSnapshot, error) {
 	p.mu.RLock()
 	defer p.mu.RUnlock()

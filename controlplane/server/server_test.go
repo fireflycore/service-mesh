@@ -1,0 +1,98 @@
+package server
+
+import (
+	"context"
+	"net"
+	"testing"
+
+	controlv1 "github.com/fireflycore/service-mesh/.gen/proto/acme/control/v1"
+	"github.com/fireflycore/service-mesh/controlplane/snapshot"
+	"google.golang.org/grpc"
+	"google.golang.org/grpc/credentials/insecure"
+)
+
+func TestServerConnectSendsSnapshotAndPolicy(t *testing.T) {
+	store := snapshot.NewStore()
+	store.PutServiceSnapshot(&controlv1.ServiceSnapshot{
+		Service: &controlv1.ServiceRef{
+			Service:   "orders",
+			Namespace: "default",
+		},
+		Endpoints: []*controlv1.Endpoint{
+			{Address: "10.0.0.10", Port: 19090, Weight: 1},
+		},
+		Revision: "v1",
+	})
+	store.PutRoutePolicy(&controlv1.RoutePolicy{
+		Service: &controlv1.ServiceRef{
+			Service:   "orders",
+			Namespace: "default",
+		},
+		Retry: &controlv1.RetryPolicy{
+			MaxAttempts:     2,
+			PerTryTimeoutMs: 500,
+		},
+		TimeoutMs: 1500,
+	})
+
+	grpcServer := grpc.NewServer()
+	controlv1.RegisterMeshControlPlaneServiceServer(grpcServer, New(store))
+
+	listener, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatalf("listen failed: %v", err)
+	}
+	defer listener.Close()
+
+	go func() {
+		_ = grpcServer.Serve(listener)
+	}()
+	defer grpcServer.Stop()
+
+	conn, err := grpc.DialContext(
+		context.Background(),
+		listener.Addr().String(),
+		grpc.WithTransportCredentials(insecure.NewCredentials()),
+	)
+	if err != nil {
+		t.Fatalf("dial failed: %v", err)
+	}
+	defer conn.Close()
+
+	stream, err := controlv1.NewMeshControlPlaneServiceClient(conn).Connect(context.Background())
+	if err != nil {
+		t.Fatalf("connect failed: %v", err)
+	}
+
+	if err := stream.Send(&controlv1.ConnectRequest{
+		Body: &controlv1.ConnectRequest_Register{
+			Register: &controlv1.DataplaneRegister{
+				Identity: &controlv1.DataplaneIdentity{
+					DataplaneId: "dp-1",
+					Mode:        "agent",
+					NodeId:      "node-1",
+					Namespace:   "default",
+					Service:     "orders",
+				},
+			},
+		},
+	}); err != nil {
+		t.Fatalf("send register failed: %v", err)
+	}
+
+	first, err := stream.Recv()
+	if err != nil {
+		t.Fatalf("recv snapshot failed: %v", err)
+	}
+	if first.GetServiceSnapshot() == nil {
+		t.Fatalf("expected service snapshot response")
+	}
+
+	second, err := stream.Recv()
+	if err != nil {
+		t.Fatalf("recv route policy failed: %v", err)
+	}
+	if second.GetRoutePolicy() == nil {
+		t.Fatalf("expected route policy response")
+	}
+}

@@ -6,8 +6,12 @@ import (
 	"log/slog"
 	"net"
 	"os"
+	"strconv"
+	"time"
 
+	controlv1 "github.com/fireflycore/service-mesh/.gen/proto/acme/control/v1"
 	invokev1 "github.com/fireflycore/service-mesh/.gen/proto/acme/invoke/v1"
+	controlclient "github.com/fireflycore/service-mesh/controlplane/client"
 	"github.com/fireflycore/service-mesh/dataplane/authz"
 	"github.com/fireflycore/service-mesh/dataplane/balancer"
 	"github.com/fireflycore/service-mesh/dataplane/invoke"
@@ -22,9 +26,10 @@ import (
 )
 
 type Runner struct {
-	cfg        *config.Config
-	grpcServer *grpc.Server
-	telemetry  *otelintegration.Providers
+	cfg                *config.Config
+	grpcServer         *grpc.Server
+	telemetry          *otelintegration.Providers
+	controlplaneClient *controlclient.Client
 }
 
 // New 创建 agent 运行时，并把当前版本需要的核心依赖装配起来。
@@ -69,9 +74,10 @@ func New(cfg *config.Config) (*Runner, error) {
 	invokev1.RegisterMeshInvokeServiceServer(grpcServer, invokeService)
 
 	return &Runner{
-		cfg:        cfg,
-		grpcServer: grpcServer,
-		telemetry:  telemetryProviders,
+		cfg:                cfg,
+		grpcServer:         grpcServer,
+		telemetry:          telemetryProviders,
+		controlplaneClient: controlclient.New(cfg.ControlPlane),
 	}, nil
 }
 
@@ -101,6 +107,10 @@ func (r *Runner) Run(ctx context.Context) error {
 		close(errCh)
 	}()
 
+	if r.cfg.ControlPlane.Enabled {
+		go r.runControlPlane(ctx)
+	}
+
 	slog.Info("service-mesh agent started",
 		slog.String("listen_network", r.cfg.Runtime.Agent.Listen.Network),
 		slog.String("listen_address", r.cfg.Runtime.Agent.Listen.Address),
@@ -119,6 +129,27 @@ func (r *Runner) Run(ctx context.Context) error {
 	r.grpcServer.GracefulStop()
 	slog.Info("service-mesh agent stopped")
 	return nil
+}
+
+func (r *Runner) runControlPlane(ctx context.Context) {
+	if r.controlplaneClient == nil {
+		return
+	}
+
+	identity := &controlv1.DataplaneIdentity{
+		DataplaneId: r.dataplaneID(),
+		Mode:        "agent",
+		NodeId:      hostname(),
+		Namespace:   r.namespace(),
+		Service:     "service-mesh-agent",
+	}
+
+	if err := r.controlplaneClient.Run(ctx, identity); err != nil && !errors.Is(err, context.Canceled) {
+		slog.Warn("controlplane client stopped",
+			slog.String("target", r.cfg.ControlPlane.Target),
+			slog.String("error", err.Error()),
+		)
+	}
 }
 
 func (r *Runner) listen() (net.Listener, func(), error) {
@@ -147,4 +178,25 @@ func (r *Runner) listen() (net.Listener, func(), error) {
 	}
 
 	return listener, cleanup, nil
+}
+
+func (r *Runner) dataplaneID() string {
+	return hostname() + "-" + strconv.FormatInt(time.Now().UnixNano(), 10)
+}
+
+func (r *Runner) namespace() string {
+	switch r.cfg.Source.Kind {
+	case "etcd":
+		return r.cfg.Source.Etcd.Namespace
+	default:
+		return r.cfg.Source.Consul.Namespace
+	}
+}
+
+func hostname() string {
+	name, err := os.Hostname()
+	if err != nil || name == "" {
+		return "unknown-node"
+	}
+	return name
 }

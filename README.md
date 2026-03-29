@@ -46,10 +46,15 @@ service
   - 接入真实 `etcd source`
   - 输出统一 `ServiceSnapshot`
   - 与 `consul source` 保持一致的内部快照语义
-- 第六版当前范围已完成：
-  - 实现 `timeout`
-  - 实现 `retry` 基础能力
-  - 强化调用错误处理
+- 第七版当前范围已完成：
+  - 接入 OTel trace provider
+  - 接入 OTel metric provider
+  - 为 Invoke 调用链补充基础埋点与 gRPC instrumentation
+- 第八版当前目标：
+- 第八版当前范围已完成：
+  - 最小 `MeshControlPlaneService`
+  - dataplane register / heartbeat
+  - 基础 `ServiceSnapshot / RoutePolicy` 下发
 
 ## 设计原则
 

@@ -8,6 +8,7 @@ message DataplaneIdentity {
   string node_id = 3;
   string namespace = 4;
   string service = 5;
+  string env = 6;
 }
 
 message DataplaneRegister {

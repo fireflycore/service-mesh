@@ -1,0 +1,19 @@
+mode: agent
+
+runtime:
+  agent:
+    listen:
+      network: unix
+      address: /tmp/service-mesh.sock
+
+source:
+  kind: consul
+  consul:
+    address: 127.0.0.1:8500
+
+authz:
+  target: 127.0.0.1:9001
+
+controlplane:
+  enabled: true
+  target: 127.0.0.1:19080

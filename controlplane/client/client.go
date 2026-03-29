@@ -90,6 +90,7 @@ func (s *State) ResolveSnapshot(target model.ServiceRef) (model.ServiceSnapshot,
 			Env:       snapshot.GetService().GetEnv(),
 			Port:      snapshot.GetService().GetPort(),
 		},
+		// endpoint 列表需要从 proto 模型转换为 dataplane 内部模型。
 		Endpoints: toModelEndpoints(snapshot.GetEndpoints()),
 		Revision:  snapshot.GetRevision(),
 	}, true
@@ -106,14 +107,17 @@ func (s *State) ResolveRoutePolicy(target model.ServiceRef) (*controlv1.RoutePol
 
 // Client 负责维持 dataplane 到 controlplane 的长连接。
 type Client struct {
-	cfg   config.ControlPlaneConfig
+	// cfg 决定目标地址、心跳频率和建链超时。
+	cfg config.ControlPlaneConfig
+	// state 暴露给 dataplane 其他组件读取控制面下发结果。
 	state *State
 }
 
 // New 创建 controlplane client。
 func New(cfg config.ControlPlaneConfig) *Client {
 	return &Client{
-		cfg:   cfg,
+		cfg: cfg,
+		// State 默认从空仓开始，等 register 成功后逐步填充。
 		state: &State{},
 	}
 }
@@ -150,6 +154,7 @@ func (c *Client) Run(ctx context.Context, identity *controlv1.DataplaneIdentity)
 			timer.Stop()
 			return ctx.Err()
 		case <-timer.C:
+			// 退避结束后进入下一轮 connectOnce。
 		}
 	}
 }
@@ -185,6 +190,7 @@ func (c *Client) connectOnce(ctx context.Context, identity *controlv1.DataplaneI
 			},
 		},
 	}); err != nil {
+		// register 失败说明本轮连接尚未进入稳定阶段，直接让上层重连。
 		return err
 	}
 
@@ -215,6 +221,7 @@ func (c *Client) connectOnce(ctx context.Context, identity *controlv1.DataplaneI
 					},
 				},
 			}); err != nil {
+				// 心跳发送失败通常意味着流已经失效，交给外层重连。
 				return err
 			}
 		case <-ctx.Done():
@@ -247,6 +254,7 @@ func (c *Client) recvLoop(stream grpc.BidiStreamingClient[controlv1.ConnectReque
 // heartbeatInterval 统一收敛心跳周期默认值。
 func heartbeatInterval(cfg config.ControlPlaneConfig) time.Duration {
 	if cfg.HeartbeatIntervalMS == 0 {
+		// 与配置默认值保持一致，避免直接构造 Client 时语义漂移。
 		return 3 * time.Second
 	}
 	return time.Duration(cfg.HeartbeatIntervalMS) * time.Millisecond
@@ -255,6 +263,7 @@ func heartbeatInterval(cfg config.ControlPlaneConfig) time.Duration {
 // connectTimeout 统一收敛控制面连接超时默认值。
 func connectTimeout(cfg config.ControlPlaneConfig) time.Duration {
 	if cfg.ConnectTimeoutMS == 0 {
+		// 兜底 1 秒，避免拨号阶段长时间挂死。
 		return time.Second
 	}
 	return time.Duration(cfg.ConnectTimeoutMS) * time.Millisecond
@@ -300,6 +309,7 @@ func toModelEndpoints(endpoints []*controlv1.Endpoint) []model.Endpoint {
 	result := make([]model.Endpoint, 0, len(endpoints))
 	for _, endpoint := range endpoints {
 		if endpoint == nil {
+			// 空指针 endpoint 直接跳过，保证状态转换过程更稳健。
 			continue
 		}
 		result = append(result, model.Endpoint{

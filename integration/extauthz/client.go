@@ -52,7 +52,8 @@ func New(cfg config.AuthzConfig) (*Client, error) {
 	}
 
 	return &Client{
-		target:         cfg.Target,
+		target: cfg.Target,
+		// timeout/failOpen/includeHeaders 都在 New 阶段固化，后续调用只读使用。
 		timeout:        time.Duration(cfg.TimeoutMS) * time.Millisecond,
 		failOpen:       cfg.FailOpen,
 		includeHeaders: headers,
@@ -95,6 +96,7 @@ func buildCheckRequest(req *invokev1.UnaryInvokeRequest, includeHeaders map[stri
 
 	for _, entry := range req.GetContext().GetMetadata() {
 		if len(entry.GetValues()) == 0 {
+			// 没值的 metadata 对 ext_authz 没有意义，直接跳过。
 			continue
 		}
 		if len(includeHeaders) > 0 {
@@ -120,11 +122,12 @@ func buildCheckRequest(req *invokev1.UnaryInvokeRequest, includeHeaders map[stri
 				// HTTPRequest 是把 gRPC 请求投影到 ext_authz 预期的 HTTP 视图。
 				Time: timestamppb.Now(),
 				Http: &authv3.AttributeContext_HttpRequest{
-					Id:       req.GetContext().GetTraceId(),
-					Method:   "POST",
-					Host:     req.GetTarget().GetService(),
-					Path:     req.GetMethod(),
-					Scheme:   "grpc",
+					Id:     req.GetContext().GetTraceId(),
+					Method: "POST",
+					Host:   req.GetTarget().GetService(),
+					Path:   req.GetMethod(),
+					Scheme: "grpc",
+					// header 经过 allow-list 过滤后再放进 ext_authz 请求。
 					Headers:  headers,
 					Protocol: "HTTP/2",
 					RawBody:  req.GetPayload(),
@@ -162,9 +165,11 @@ func (c *Client) Close() error {
 	defer c.mu.Unlock()
 
 	if c.conn == nil {
+		// 允许重复 Close，保证测试或退出钩子里调用更安全。
 		return nil
 	}
 	err := c.conn.Close()
+	// 无论 Close 成功与否，都把内部句柄清空，避免后续误用已关闭连接。
 	c.conn = nil
 	c.client = nil
 	if err != nil {

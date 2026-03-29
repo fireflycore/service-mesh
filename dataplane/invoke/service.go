@@ -20,6 +20,7 @@ import (
 )
 
 type Resolver interface {
+	// Resolve 把逻辑服务标识转换成当前可访问的单个实例地址。
 	Resolve(ctx context.Context, target model.ServiceRef) (model.Endpoint, error)
 }
 
@@ -30,8 +31,11 @@ type PolicySource interface {
 
 // LocalIdentity 描述 sidecar 绑定的本地业务服务身份。
 type LocalIdentity struct {
-	AppID     string
-	Service   string
+	// AppID 通常对应业务应用标识；为空时会回退到 Service。
+	AppID string
+	// Service 是 sidecar 绑定的本地逻辑服务名。
+	Service string
+	// Namespace/Env 用于把本地调用语义和目录/控制面维度对齐。
 	Namespace string
 	Env       string
 }
@@ -70,12 +74,15 @@ type Options struct {
 type Service struct {
 	invokev1.UnimplementedMeshInvokeServiceServer
 
+	// 这三段依赖分别对应鉴权、目标解析、真实转发三个阶段。
 	authorizer authz.Authorizer
 	resolver   Resolver
 	transport  transport.Invoker
-	options    Options
+	// options 保存当前服务实例的静态默认策略。
+	options Options
 }
 
+// NewService 创建一个本地 MeshInvokeService。
 func NewService(authorizer authz.Authorizer, resolver Resolver, transport transport.Invoker, options ...Options) *Service {
 	// 先拿默认值，只有调用者显式传入时才覆盖。
 	opts := defaultOptions()
@@ -138,11 +145,13 @@ func (s *Service) UnaryInvoke(ctx context.Context, req *invokev1.UnaryInvokeRequ
 		callTimeout = time.Duration(req.GetContext().GetTimeoutMs()) * time.Millisecond
 	}
 	if callTimeout > 0 {
+		// 这层 timeout 覆盖整次调用生命周期，包含鉴权、解析、重试与下游转发。
 		var cancel context.CancelFunc
 		callCtx, cancel = context.WithTimeout(ctx, callTimeout)
 		defer cancel()
 	}
 
+	// telemetry 从真正进入业务链路前开始统计。
 	effectiveOptions.Telemetry.RecordRequest(callCtx)
 	spanCtx, span := effectiveOptions.Telemetry.StartInvoke(callCtx, req)
 	defer span.End()
@@ -168,6 +177,7 @@ func (s *Service) UnaryInvoke(ctx context.Context, req *invokev1.UnaryInvokeRequ
 
 	var lastErr error
 	for attempt := uint32(1); attempt <= attempts; attempt++ {
+		// 默认每一轮尝试沿用总调用上下文；只有配置了 per-try timeout 才再切子 ctx。
 		attemptCtx := spanCtx
 		attemptCancel := func() {}
 		if effectiveOptions.PerTryTimeout > 0 {
@@ -178,6 +188,7 @@ func (s *Service) UnaryInvoke(ctx context.Context, req *invokev1.UnaryInvokeRequ
 		// 先解析出本次调用真正命中的实例。
 		endpoint, err := s.resolver.Resolve(attemptCtx, target)
 		if err != nil {
+			// resolver 失败通常意味着目录不可用、无健康实例，或 balancer 无法选点。
 			lastErr = err
 		} else {
 			// transport 只负责把请求真正发给下游业务实例。
@@ -188,6 +199,7 @@ func (s *Service) UnaryInvoke(ctx context.Context, req *invokev1.UnaryInvokeRequ
 				return resp, nil
 			}
 			span.RecordError(invokeErr)
+			// transport 失败后继续看是否命中 retry 策略。
 			lastErr = invokeErr
 		}
 		attemptCancel()
@@ -246,6 +258,7 @@ func defaultOptions() Options {
 	})
 }
 
+// normalizeOptions 把外部传入的可选项修整成运行时稳定可用的形态。
 func normalizeOptions(options Options) Options {
 	// 下面依次补齐每个运行时选项的兜底值。
 	if options.Timeout <= 0 {
@@ -272,6 +285,7 @@ func normalizeOptions(options Options) Options {
 		options.Telemetry = meshtelemetry.NewNoopEmitter()
 	}
 	if options.LocalIdentity != nil {
+		// sidecar identity 也统一做 trim，避免字符串空白造成伪冲突。
 		options.LocalIdentity = normalizeLocalIdentity(*options.LocalIdentity)
 	}
 	return options
@@ -318,6 +332,8 @@ func shouldRetry(err error, attempt, attempts uint32, options Options) bool {
 		return false
 	}
 	if errors.Is(err, context.DeadlineExceeded) {
+		// DeadlineExceeded 既可能来自总超时，也可能来自 per-try timeout，
+		// 是否重试交给 RetryableCodes 明确控制。
 		_, ok := options.RetryableCodes[codes.DeadlineExceeded]
 		return ok
 	}
@@ -335,6 +351,7 @@ func mergeOptionsWithPolicy(base Options, policy *controlv1.RoutePolicy) Options
 
 	merged := base
 	if policy.GetTimeoutMs() > 0 {
+		// 控制面 timeout 一旦下发，就覆盖本地静态超时预算。
 		merged.Timeout = time.Duration(policy.GetTimeoutMs()) * time.Millisecond
 	}
 	if policy.GetRetry() != nil {
@@ -342,6 +359,7 @@ func mergeOptionsWithPolicy(base Options, policy *controlv1.RoutePolicy) Options
 			merged.RetryMaxAttempts = policy.GetRetry().GetMaxAttempts()
 		}
 		if policy.GetRetry().GetPerTryTimeoutMs() > 0 {
+			// 当前控制面只覆盖 max_attempts 和 per_try_timeout 两个最关键项。
 			merged.PerTryTimeout = time.Duration(policy.GetRetry().GetPerTryTimeoutMs()) * time.Millisecond
 		}
 	}
@@ -375,6 +393,7 @@ func applyLocalIdentity(req *invokev1.UnaryInvokeRequest, identity *LocalIdentit
 	}
 
 	if strings.TrimSpace(req.Context.Caller.AppId) == "" {
+		// AppId 缺省时默认与 Service 对齐，避免本地调用方必须重复填写。
 		req.Context.Caller.AppId = identity.AppID
 	}
 	if strings.TrimSpace(req.Context.Caller.Service) == "" {
@@ -409,6 +428,7 @@ func normalizeLocalIdentity(identity LocalIdentity) *LocalIdentity {
 	identity.Namespace = strings.TrimSpace(identity.Namespace)
 	identity.Env = strings.TrimSpace(identity.Env)
 	if identity.AppID == "" {
+		// AppID 缺失时回退到 Service，保证 caller identity 始终是完整的。
 		identity.AppID = identity.Service
 	}
 	return &identity
@@ -419,6 +439,7 @@ func ensureMatch(field, actual, expected string) error {
 	actual = strings.TrimSpace(actual)
 	expected = strings.TrimSpace(expected)
 	if actual == "" || expected == "" {
+		// 任意一侧为空都视为“没有显式冲突”，留给后续补齐逻辑处理。
 		return nil
 	}
 	if actual != expected {

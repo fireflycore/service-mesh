@@ -22,6 +22,7 @@ import (
 // - 初始化 metric provider
 // - 在进程退出时统一 shutdown
 type Providers struct {
+	// traceProvider/meterProvider 可能分别为空，取决于开关配置。
 	traceProvider *sdktrace.TracerProvider
 	meterProvider *metric.MeterProvider
 }
@@ -31,9 +32,11 @@ func New(ctx context.Context, cfg config.TelemetryConfig, serviceName string) (*
 	providers := &Providers{}
 
 	if !cfg.TraceEnabled && !cfg.MetricEnabled {
+		// 两个开关都关闭时直接返回空 providers，调用方仍可安全 Shutdown。
 		return providers, nil
 	}
 
+	// resource 负责给 trace/metric 统一挂上 service.name 等资源属性。
 	res, err := resource.New(ctx,
 		resource.WithAttributes(
 			semconv.ServiceName(serviceName),
@@ -46,6 +49,7 @@ func New(ctx context.Context, cfg config.TelemetryConfig, serviceName string) (*
 	}
 
 	if cfg.TraceEnabled {
+		// 当前 trace exporter 固定使用 OTLP/HTTP。
 		exporter, err := otlptracehttp.New(ctx, otlptracehttp.WithEndpointURL(cfg.OTLPEndpoint))
 		if err != nil {
 			return nil, err
@@ -55,6 +59,7 @@ func New(ctx context.Context, cfg config.TelemetryConfig, serviceName string) (*
 			sdktrace.WithBatcher(exporter),
 			sdktrace.WithResource(res),
 		)
+		// 安装全局 tracer provider 后，业务层通过 otel.Tracer() 即可直接取用。
 		otelapi.SetTracerProvider(providers.traceProvider)
 		otelapi.SetTextMapPropagator(propagation.NewCompositeTextMapPropagator(
 			propagation.TraceContext{},
@@ -63,6 +68,7 @@ func New(ctx context.Context, cfg config.TelemetryConfig, serviceName string) (*
 	}
 
 	if cfg.MetricEnabled {
+		// metric 同样走 OTLP/HTTP，并使用周期性 reader 主动导出。
 		exporter, err := otlpmetrichttp.New(ctx, otlpmetrichttp.WithEndpointURL(cfg.OTLPEndpoint))
 		if err != nil {
 			return nil, err
@@ -72,6 +78,7 @@ func New(ctx context.Context, cfg config.TelemetryConfig, serviceName string) (*
 			metric.WithResource(res),
 			metric.WithReader(metric.NewPeriodicReader(exporter)),
 		)
+		// 安装全局 meter provider 后，业务层通过 otel.Meter() 即可直接取用。
 		otelapi.SetMeterProvider(providers.meterProvider)
 	}
 
@@ -83,6 +90,7 @@ func (p *Providers) Shutdown(ctx context.Context) error {
 	var shutdownErr error
 
 	if p.traceProvider != nil {
+		// Join 保证 trace/meter 的关闭错误都不会丢失。
 		shutdownErr = errors.Join(shutdownErr, p.traceProvider.Shutdown(ctx))
 	}
 	if p.meterProvider != nil {

@@ -16,7 +16,8 @@ type Picker interface {
 //
 // 它按 service 维度维护游标，确保同一个服务的多次请求能够轮询不同实例。
 type RoundRobin struct {
-	mu      sync.Mutex
+	mu sync.Mutex
+	// current 为每个服务维护独立游标，避免不同服务之间互相影响。
 	current map[string]uint64
 }
 
@@ -30,14 +31,17 @@ func NewRoundRobin() *RoundRobin {
 // Pick 从快照中挑选一个 endpoint。
 func (b *RoundRobin) Pick(snapshot model.ServiceSnapshot) (model.Endpoint, error) {
 	if len(snapshot.Endpoints) == 0 {
+		// 没有实例时直接报错，让上层按“服务不可用”处理。
 		return model.Endpoint{}, errors.New("no endpoints available")
 	}
 
+	// key 按 namespace/env/service 组合，保证不同环境的游标相互独立。
 	key := snapshot.Service.Namespace + "/" + snapshot.Service.Env + "/" + snapshot.Service.Service
 
 	b.mu.Lock()
 	defer b.mu.Unlock()
 
+	// 通过取模把递增游标映射到当前 endpoint 列表。
 	index := b.current[key] % uint64(len(snapshot.Endpoints))
 	b.current[key]++
 

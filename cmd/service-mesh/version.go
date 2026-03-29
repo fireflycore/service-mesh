@@ -7,6 +7,8 @@ import (
 )
 
 var (
+	// 这三个值默认是本地开发占位值；
+	// 正式构建时通常通过 -ldflags 覆盖。
 	version = "dev"
 	commit  = "none"
 	date    = "unknown"
@@ -21,6 +23,7 @@ func newVersionCmd() *cobra.Command {
 		Use:   "version",
 		Short: "Print service-mesh version",
 		RunE: func(cmd *cobra.Command, args []string) error {
+			// 输出格式保持单行，便于脚本解析。
 			_, err := fmt.Fprintf(cmd.OutOrStdout(), "version=%s commit=%s date=%s\n", version, commit, date)
 			return err
 		},

@@ -10,7 +10,9 @@ import (
 
 // Resolver 把“逻辑目标服务”解析为“本次实际要访问的 endpoint”。
 type Resolver struct {
-	source   source.Provider
+	// source 提供某个逻辑服务当前有哪些实例。
+	source source.Provider
+	// balancer 决定这些实例里本次该选哪一个。
 	balancer balancer.Picker
 }
 
@@ -28,10 +30,12 @@ func New(provider source.Provider, picker balancer.Picker) *Resolver {
 
 // Resolve 返回本次调用应命中的目标 endpoint。
 func (r *Resolver) Resolve(ctx context.Context, target model.ServiceRef) (model.Endpoint, error) {
+	// 先拿到全量快照，再把选点策略留给 balancer。
 	snapshot, err := r.source.Resolve(ctx, target)
 	if err != nil {
 		return model.Endpoint{}, err
 	}
 
+	// balancer 在这里把“服务级快照”压缩成“单个目标实例”。
 	return r.balancer.Pick(snapshot)
 }

@@ -32,6 +32,7 @@ func (t *fakeTransport) Invoke(_ context.Context, endpoint model.Endpoint, req *
 }
 
 func TestServiceUnaryInvoke(t *testing.T) {
+	// 先准备一份最小内存目录，让 resolver 一定能选到目标实例。
 	provider := memory.New(map[string]model.ServiceSnapshot{
 		"default/dev/orders": {
 			Service: model.ServiceRef{
@@ -57,6 +58,7 @@ func TestServiceUnaryInvoke(t *testing.T) {
 	)
 
 	server := grpc.NewServer()
+	// 这里走真实 gRPC server/client，验证的是完整的本地 invoke 入口，而不只是函数调用。
 	invokev1.RegisterMeshInvokeServiceServer(server, svc)
 
 	listener, err := net.Listen("tcp", "127.0.0.1:0")
@@ -143,6 +145,7 @@ func (s fakePolicySource) ResolveRoutePolicy(target model.ServiceRef) (*controlv
 
 // TestServiceUnaryInvokeRejectsInvalidRequest 验证入口参数校验。
 func TestServiceUnaryInvokeRejectsInvalidRequest(t *testing.T) {
+	// 这里故意传空请求，验证入口参数校验发生在真正业务链路之前。
 	svc := NewService(
 		authz.NewAllowAll(),
 		resolver.New(memory.New(nil), balancer.NewRoundRobin()),
@@ -167,6 +170,7 @@ func TestServiceUnaryInvokeRejectsInvalidRequest(t *testing.T) {
 func TestServiceUnaryInvokeRetriesOnUnavailable(t *testing.T) {
 	transport := &flakyTransport{}
 
+	// 本地配置只允许 2 次尝试，因此 flakyTransport 应该正好在第二次成功。
 	svc := NewService(
 		authz.NewAllowAll(),
 		resolver.New(memory.New(map[string]model.ServiceSnapshot{
@@ -214,6 +218,7 @@ func TestServiceUnaryInvokeRetriesOnUnavailable(t *testing.T) {
 
 // TestServiceUnaryInvokeTimeout 验证超时预算会转成 DeadlineExceeded。
 func TestServiceUnaryInvokeTimeout(t *testing.T) {
+	// slowTransport 永远等 ctx 结束，因此这里主要验证 timeout 到错误码的映射。
 	svc := NewService(
 		authz.NewAllowAll(),
 		resolver.New(memory.New(map[string]model.ServiceSnapshot{
@@ -263,6 +268,7 @@ func TestServiceUnaryInvokeTimeout(t *testing.T) {
 func TestServiceUnaryInvokeAppliesControlPlaneRetryPolicy(t *testing.T) {
 	transport := &flakyTransport{}
 
+	// 本地 RetryMaxAttempts=1，但控制面策略把它提升到 2，用来验证覆盖优先级。
 	svc := NewService(
 		authz.NewAllowAll(),
 		resolver.New(memory.New(map[string]model.ServiceSnapshot{
@@ -323,6 +329,7 @@ func TestServiceUnaryInvokeAppliesControlPlaneRetryPolicy(t *testing.T) {
 
 // TestServiceUnaryInvokeAppliesSidecarLocalIdentity 验证 sidecar 会补齐 caller 与 target 上下文。
 func TestServiceUnaryInvokeAppliesSidecarLocalIdentity(t *testing.T) {
+	// 目标请求故意不填 namespace/env/context，观察 sidecar identity 是否补齐成功。
 	svc := NewService(
 		authz.NewAllowAll(),
 		resolver.New(memory.New(map[string]model.ServiceSnapshot{
@@ -369,6 +376,7 @@ func TestServiceUnaryInvokeAppliesSidecarLocalIdentity(t *testing.T) {
 		t.Fatalf("unexpected target env: got=%s want=%s", got, want)
 	}
 	if req.GetContext().GetTraceId() == "" {
+		// trace_id 不要求固定值，只要求 sidecar 在缺省时自动生成。
 		t.Fatal("expected trace id to be generated")
 	}
 	if got, want := string(resp.GetPayload()), "127.0.0.1:hello"; got != want {
@@ -378,6 +386,7 @@ func TestServiceUnaryInvokeAppliesSidecarLocalIdentity(t *testing.T) {
 
 // TestServiceUnaryInvokeRejectsConflictingSidecarIdentity 验证冲突 caller identity 会被拒绝。
 func TestServiceUnaryInvokeRejectsConflictingSidecarIdentity(t *testing.T) {
+	// 这里显式构造冲突 caller.service，验证 sidecar 不会接受伪造 caller identity。
 	svc := NewService(
 		authz.NewAllowAll(),
 		resolver.New(memory.New(nil), balancer.NewRoundRobin()),

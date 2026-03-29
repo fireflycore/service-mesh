@@ -13,13 +13,14 @@ import (
 
 // Emitter 以最小封装方式暴露 tracing 和 metrics 两类能力，
 // 避免 invoke 层直接持有一组零散的 OTel 句柄。
-// Emitter 封装第七版需要的最小 telemetry 能力。
 //
 // 当前只负责两类事情：
 // - 为 invoke 调用创建 span
 // - 记录请求数、失败数、耗时与重试次数
 type Emitter struct {
-	tracer         trace.Tracer
+	// tracer 负责创建 span。
+	tracer trace.Tracer
+	// 下面四个 instrument 分别统计请求、失败、重试与耗时。
 	requestCounter metric.Int64Counter
 	failureCounter metric.Int64Counter
 	retryCounter   metric.Int64Counter
@@ -28,6 +29,7 @@ type Emitter struct {
 
 // NewEmitter 基于全局 OTel provider 创建 telemetry emitter。
 func NewEmitter() (*Emitter, error) {
+	// meter/tracer 都依赖 integration/otel 预先安装的全局 provider。
 	meter := otel.Meter("github.com/fireflycore/service-mesh/dataplane/telemetry")
 
 	requestCounter, err := meter.Int64Counter("service_mesh.invoke.requests")
@@ -68,6 +70,7 @@ func (e *Emitter) StartInvoke(ctx context.Context, req *invokev1.UnaryInvokeRequ
 	}
 
 	attrs := []attribute.KeyValue{
+		// 这里只记录最关键的目标与协议属性，保持 span 属性简洁稳定。
 		attribute.String("mesh.target.service", req.GetTarget().GetService()),
 		attribute.String("mesh.target.namespace", req.GetTarget().GetNamespace()),
 		attribute.String("mesh.target.env", req.GetTarget().GetEnv()),
@@ -91,6 +94,7 @@ func (e *Emitter) RecordFailure(ctx context.Context, reason string) {
 	if e == nil || e.failureCounter == nil {
 		return
 	}
+	// failure reason 会作为一个低基数字段，便于按失败原因聚合。
 	e.failureCounter.Add(ctx, 1, metric.WithAttributes(
 		attribute.String("mesh.failure.reason", reason),
 	))
@@ -101,6 +105,7 @@ func (e *Emitter) RecordRetry(ctx context.Context, attempt int64) {
 	if e == nil || e.retryCounter == nil {
 		return
 	}
+	// attempt 记录的是已经进入的重试轮次，不包含初次尝试前的状态。
 	e.retryCounter.Add(ctx, 1, metric.WithAttributes(
 		attribute.Int64("mesh.retry.attempt", attempt),
 	))

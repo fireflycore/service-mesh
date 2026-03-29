@@ -18,6 +18,7 @@ import (
 // TestSidecarReusesInvokeRuntime 验证 sidecar 模式不是空壳，
 // 而是和 agent 一样真正挂载了 MeshInvokeService。
 func TestSidecarReusesInvokeRuntime(t *testing.T) {
+	// 先预留一个空闲端口，再交给真正的 sidecar runtime 监听。
 	listener, err := net.Listen("tcp", "127.0.0.1:0")
 	if err != nil {
 		t.Fatalf("listen failed: %v", err)
@@ -34,6 +35,7 @@ func TestSidecarReusesInvokeRuntime(t *testing.T) {
 	cfg.Runtime.Sidecar.Namespace = "/microservice/lhdht"
 	cfg.Runtime.Sidecar.Env = "dev"
 	cfg.ControlPlane.Enabled = false
+	// 这里关闭 telemetry，避免测试依赖本地 collector。
 	cfg.Telemetry.TraceEnabled = false
 	cfg.Telemetry.MetricEnabled = false
 	cfg.Telemetry.LogEnabled = false
@@ -51,6 +53,7 @@ func TestSidecarReusesInvokeRuntime(t *testing.T) {
 		errCh <- runner.Run(ctx)
 	}()
 
+	// 给 gRPC server 一个最小启动窗口。
 	time.Sleep(150 * time.Millisecond)
 
 	conn, err := grpc.DialContext(
@@ -78,6 +81,7 @@ func TestSidecarReusesInvokeRuntime(t *testing.T) {
 
 	cancel()
 
+	// 取消 ctx 后，runner 应该能在可接受时间内优雅退出。
 	select {
 	case runErr := <-errCh:
 		if runErr != nil {

@@ -13,8 +13,11 @@ type Runner = shared.Runner
 // New 用 sidecar 专属身份与监听参数包装 shared runner。
 func New(cfg *config.Config) (*Runner, error) {
 	return shared.New(cfg, shared.Params{
-		Mode:        "sidecar",
-		Listen:      cfg.Runtime.Sidecar.Listen,
+		// sidecar 以“绑定某个本地业务实例”的模式运行。
+		Mode: "sidecar",
+		// sidecar 本地入口通常是容器或进程附近的 TCP 地址。
+		Listen: cfg.Runtime.Sidecar.Listen,
+		// 下面四个字段共同构成 sidecar 的本地服务身份。
 		ServiceName: cfg.Runtime.Sidecar.ServiceName,
 		InstanceID:  cfg.Runtime.Sidecar.InstanceID,
 		Namespace:   cfg.Runtime.Sidecar.Namespace,

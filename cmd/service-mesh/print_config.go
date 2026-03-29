@@ -16,10 +16,13 @@ func newPrintConfigCmd() *cobra.Command {
 		Use:   "print-config",
 		Short: "Print normalized service-mesh config",
 		RunE: func(cmd *cobra.Command, args []string) error {
+			// 这里输出的是“最终生效配置”，
+			// 不是原始 YAML 文件内容。
 			cfg, err := config.Load(opts)
 			if err != nil {
 				return err
 			}
+			// Render 会把结构体重新编码成更适合查看的 YAML。
 			raw, err := config.Render(*cfg)
 			if err != nil {
 				return err

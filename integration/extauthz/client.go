@@ -21,11 +21,13 @@ import (
 // 它把 service-mesh 的 Invoke 请求转换为 ext_authz CheckRequest，
 // 并负责超时控制、连接复用与最小字段映射。
 type Client struct {
+	// 这些字段都是从配置展开后的运行时常量。
 	target         string
 	timeout        time.Duration
 	failOpen       bool
 	includeHeaders map[string]struct{}
 
+	// conn/client 在当前实现里长期复用，减少频繁建链开销。
 	mu     sync.Mutex
 	conn   *grpc.ClientConn
 	client authv3.AuthorizationClient
@@ -33,6 +35,7 @@ type Client struct {
 
 // New 创建 ext_authz client。
 func New(cfg config.AuthzConfig) (*Client, error) {
+	// ext_authz 目前固定使用 gRPC 明文连接；后续若需要可再扩展 TLS。
 	conn, err := grpc.Dial(
 		cfg.Target,
 		grpc.WithTransportCredentials(insecure.NewCredentials()),
@@ -44,6 +47,7 @@ func New(cfg config.AuthzConfig) (*Client, error) {
 
 	headers := make(map[string]struct{}, len(cfg.IncludeHeaders))
 	for _, header := range cfg.IncludeHeaders {
+		// includeHeaders 转成 set 后，后面判断是否透传会更高效。
 		headers[header] = struct{}{}
 	}
 
@@ -66,6 +70,7 @@ func (c *Client) FailOpen() bool {
 func (c *Client) Check(ctx context.Context, req *invokev1.UnaryInvokeRequest) (*authv3.CheckResponse, error) {
 	timeout := c.timeout
 	if timeout <= 0 {
+		// 没给 timeout 时兜底 500ms，避免 authz 调用无限挂住。
 		timeout = 500 * time.Millisecond
 	}
 
@@ -77,6 +82,7 @@ func (c *Client) Check(ctx context.Context, req *invokev1.UnaryInvokeRequest) (*
 
 // buildCheckRequest 把内部 Invoke 请求映射为 Envoy ext_authz 请求。
 func buildCheckRequest(req *invokev1.UnaryInvokeRequest, includeHeaders map[string]struct{}) *authv3.CheckRequest {
+	// 先构造一组与 gRPC 请求强相关的基础 header。
 	headers := map[string]string{
 		":authority":                      req.GetTarget().GetService(),
 		":path":                           req.GetMethod(),
@@ -92,6 +98,7 @@ func buildCheckRequest(req *invokev1.UnaryInvokeRequest, includeHeaders map[stri
 			continue
 		}
 		if len(includeHeaders) > 0 {
+			// 一旦配置了 allow-list，就只透传显式允许的 header。
 			if _, ok := includeHeaders[entry.GetKey()]; !ok {
 				continue
 			}
@@ -101,6 +108,7 @@ func buildCheckRequest(req *invokev1.UnaryInvokeRequest, includeHeaders map[stri
 
 	return &authv3.CheckRequest{
 		Attributes: &authv3.AttributeContext{
+			// Source/Destination 是 ext_authz 最核心的两个身份维度。
 			Source: &authv3.AttributeContext_Peer{
 				Service: req.GetContext().GetCaller().GetService(),
 			},
@@ -109,6 +117,7 @@ func buildCheckRequest(req *invokev1.UnaryInvokeRequest, includeHeaders map[stri
 				Address: buildAddress(req.GetTarget().GetService(), req.GetTarget().GetPort()),
 			},
 			Request: &authv3.AttributeContext_Request{
+				// HTTPRequest 是把 gRPC 请求投影到 ext_authz 预期的 HTTP 视图。
 				Time: timestamppb.Now(),
 				Http: &authv3.AttributeContext_HttpRequest{
 					Id:       req.GetContext().GetTraceId(),
@@ -123,6 +132,7 @@ func buildCheckRequest(req *invokev1.UnaryInvokeRequest, includeHeaders map[stri
 				},
 			},
 			ContextExtensions: map[string]string{
+				// 附加字段用于给鉴权策略更多 mesh 维度上下文。
 				"codec":     req.GetCodec(),
 				"namespace": req.GetTarget().GetNamespace(),
 				"env":       req.GetTarget().GetEnv(),

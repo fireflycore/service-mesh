@@ -13,6 +13,7 @@ import (
 	grpccodes "google.golang.org/grpc/codes"
 )
 
+// ErrPermissionDenied 用于让上层能区分“鉴权明确拒绝”和“调用链本身异常”。
 var ErrPermissionDenied = errors.New("authz permission denied")
 
 // Authorizer 定义 Invoke 前的统一鉴权接口。
@@ -40,6 +41,7 @@ func (a *AllowAll) Check(_ context.Context, _ *invokev1.UnaryInvokeRequest) erro
 // - 调用外部鉴权服务
 // - 按配置处理 fail-open / fail-close
 type ExtAuthz struct {
+	// client 内部已经封装了 fail-open、header 过滤和 gRPC 连接。
 	client *extauthz.Client
 }
 
@@ -60,6 +62,7 @@ func (a *ExtAuthz) Check(ctx context.Context, req *invokev1.UnaryInvokeRequest) 
 	resp, err := a.client.Check(ctx, req)
 	if err != nil {
 		if a.client.FailOpen() {
+			// fail-open 场景下，外部鉴权不可达不会阻断主调用链。
 			return nil
 		}
 		return err
@@ -67,12 +70,14 @@ func (a *ExtAuthz) Check(ctx context.Context, req *invokev1.UnaryInvokeRequest) 
 
 	if resp.GetStatus() == nil {
 		if a.client.FailOpen() {
+			// 即使响应结构异常，只要 fail-open 打开，也继续放行。
 			return nil
 		}
 		return errors.New("ext_authz returned empty status")
 	}
 
 	if resp.GetStatus().GetCode() == int32(grpccodes.OK) {
+		// ext_authz 返回 OK 才代表明确授权通过。
 		return nil
 	}
 

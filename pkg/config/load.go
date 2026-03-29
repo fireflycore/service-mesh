@@ -8,10 +8,15 @@ import (
 
 // LoadOptions 表示 CLI 与外部调用者允许覆盖的最小配置入口。
 type LoadOptions struct {
-	Path               string
-	Mode               string
-	SourceKind         string
-	AuthzTarget        string
+	// Path 指向 YAML 配置文件；为空时直接从默认配置开始。
+	Path string
+	// Mode 允许通过 CLI 强制切换运行模式。
+	Mode string
+	// SourceKind 允许通过 CLI 快速切换目录来源。
+	SourceKind string
+	// AuthzTarget 允许在联调时临时替换鉴权地址。
+	AuthzTarget string
+	// ControlPlaneTarget 允许在联调时临时替换控制面地址。
 	ControlPlaneTarget string
 }
 
@@ -22,9 +27,11 @@ type LoadOptions struct {
 // 4. CLI 覆盖
 // 5. Normalize + Validate
 func Load(opts LoadOptions) (*Config, error) {
+	// 先拿一份完整默认值，保证即使没有配置文件也有可运行基线。
 	cfg := Default()
 
 	if opts.Path != "" {
+		// 文件配置只覆盖显式声明的字段，未声明字段继续保留默认值。
 		raw, err := os.ReadFile(opts.Path)
 		if err != nil {
 			return nil, err
@@ -34,6 +41,7 @@ func Load(opts LoadOptions) (*Config, error) {
 		}
 	}
 
+	// 环境变量和 CLI 覆盖放在文件配置之后，确保本地联调时优先级更高。
 	applyEnv(&cfg)
 	applyOptions(&cfg, opts)
 	Normalize(&cfg)

@@ -9,12 +9,15 @@ import "strings"
 // - 默认值补齐
 // - 保证后续 Validate 只关注“是否合法”
 func Normalize(cfg *Config) {
+	// mode/source kind 统一转小写，避免 CLI、环境变量、YAML 大小写混用。
 	cfg.Mode = strings.TrimSpace(strings.ToLower(cfg.Mode))
 	cfg.Source.Kind = strings.TrimSpace(strings.ToLower(cfg.Source.Kind))
 
+	// network 也统一转小写，确保 "TCP" / "tcp" 最终行为一致。
 	cfg.Runtime.Agent.Listen.Network = strings.TrimSpace(strings.ToLower(cfg.Runtime.Agent.Listen.Network))
 	cfg.Runtime.Sidecar.Listen.Network = strings.TrimSpace(strings.ToLower(cfg.Runtime.Sidecar.Listen.Network))
 
+	// 其余字符串类配置做 trim，避免首尾空格造成隐蔽错误。
 	cfg.Runtime.Agent.Listen.Address = strings.TrimSpace(cfg.Runtime.Agent.Listen.Address)
 	cfg.Runtime.Sidecar.Listen.Address = strings.TrimSpace(cfg.Runtime.Sidecar.Listen.Address)
 	cfg.Runtime.Sidecar.ServiceName = strings.TrimSpace(cfg.Runtime.Sidecar.ServiceName)
@@ -27,6 +30,7 @@ func Normalize(cfg *Config) {
 	cfg.Source.Consul.Namespace = strings.TrimSpace(cfg.Source.Consul.Namespace)
 	cfg.Source.Etcd.Namespace = strings.TrimSpace(cfg.Source.Etcd.Namespace)
 
+	// 下面开始补齐数值型默认值。
 	if cfg.Runtime.Agent.WorkerCount <= 0 {
 		cfg.Runtime.Agent.WorkerCount = 4
 	}
@@ -57,6 +61,7 @@ func Normalize(cfg *Config) {
 	if cfg.Source.Etcd.DialTimeoutMS == 0 {
 		cfg.Source.Etcd.DialTimeoutMS = 1000
 	}
+	// 最后补齐字符串/切片默认值。
 	if cfg.Runtime.Agent.Listen.Network == "" {
 		cfg.Runtime.Agent.Listen.Network = "unix"
 	}

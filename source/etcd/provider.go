@@ -49,6 +49,7 @@ type metaInfo struct {
 // - 转换成统一的 ServiceSnapshot
 // - 把后续实例选择留给 resolver/balancer
 type Provider struct {
+	// Config 保留连接参数与注册前缀配置。
 	Config config.EtcdSourceConfig
 	client kvGetter
 }
@@ -58,6 +59,7 @@ type Provider struct {
 // 第五版开始，这里会真正创建 etcd client，
 // 并基于统一前缀读取服务实例键值。
 func New(cfg config.EtcdSourceConfig) (*Provider, error) {
+	// 这里直接创建真实 etcd client；测试场景会绕开 New，直接注入 fake client。
 	client, err := clientv3.New(clientv3.Config{
 		Endpoints:   cfg.Endpoints,
 		Username:    cfg.Username,
@@ -88,11 +90,13 @@ func (p *Provider) Name() string {
 func (p *Provider) Resolve(ctx context.Context, target model.ServiceRef) (model.ServiceSnapshot, error) {
 	namespace := strings.TrimSpace(target.Namespace)
 	if namespace == "" {
+		// 如果调用方没写 namespace，则回退到 provider 自己的默认前缀。
 		namespace = strings.TrimSpace(p.Config.Namespace)
 	}
 	env := strings.TrimSpace(target.Env)
 	service := strings.TrimSpace(target.Service)
 
+	// etcd 下按前缀扫描同一服务的所有 lease 实例。
 	prefix := fmt.Sprintf("%s/%s/%s", namespace, env, service)
 	response, err := p.client.Get(ctx, prefix, clientv3.WithPrefix())
 	if err != nil {
@@ -112,6 +116,7 @@ func (p *Provider) Resolve(ctx context.Context, target model.ServiceRef) (model.
 	for _, kv := range response.Kvs {
 		endpoint, ok := decodeEndpoint(kv)
 		if !ok {
+			// 单条坏数据只跳过，不影响其他健康实例继续参与解析。
 			continue
 		}
 		snapshot.Endpoints = append(snapshot.Endpoints, endpoint)
@@ -132,6 +137,7 @@ func decodeEndpoint(kv *mvccpb.KeyValue) (model.Endpoint, bool) {
 
 	var node serviceNode
 	if err := json.Unmarshal(kv.Value, &node); err != nil {
+		// 无法解析的注册值直接丢弃，避免把目录脏数据带入 dataplane。
 		return model.Endpoint{}, false
 	}
 	if node.Network == nil || strings.TrimSpace(node.Network.Internal) == "" {
@@ -145,6 +151,7 @@ func decodeEndpoint(kv *mvccpb.KeyValue) (model.Endpoint, bool) {
 
 	weight := uint32(1)
 	if node.Weight > 0 {
+		// 未提供 weight 时回退为 1，保持最小可路由语义。
 		weight = uint32(node.Weight)
 	}
 

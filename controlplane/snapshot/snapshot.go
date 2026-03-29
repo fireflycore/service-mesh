@@ -9,7 +9,8 @@ import (
 
 // Store 保存控制面当前已知的基础快照与路由策略。
 type Store struct {
-	mu            sync.RWMutex
+	mu sync.RWMutex
+	// snapshots 保存服务发现结果，routePolicies 保存调用策略。
 	snapshots     map[string]*controlv1.ServiceSnapshot
 	routePolicies map[string]*controlv1.RoutePolicy
 }
@@ -30,6 +31,7 @@ func (s *Store) PutServiceSnapshot(snapshot *controlv1.ServiceSnapshot) {
 
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	// 新值直接覆盖旧值，保持“最后一次写入生效”。
 	s.snapshots[serviceKey(snapshot.GetService())] = snapshot
 }
 
@@ -57,6 +59,7 @@ func (s *Store) Lookup(service *controlv1.ServiceRef) (*controlv1.ServiceSnapsho
 	snapshot := s.snapshots[key]
 	policy := s.routePolicies[key]
 	if snapshot != nil || policy != nil {
+		// 只要快照或策略命中任意一个，就直接返回当前结果。
 		return snapshot, policy
 	}
 

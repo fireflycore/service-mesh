@@ -32,6 +32,7 @@ type Invoker interface {
 // - 让 gRPC codec 能拿到“已经编码好的 protobuf bytes”
 // - 避免 transport 在不知道具体消息类型的前提下重新构造 proto.Message
 type RawMessage struct {
+	// Payload 就是已经编码好的业务 protobuf bytes。
 	Payload []byte
 }
 
@@ -86,7 +87,8 @@ func (c rawProtoCodec) Name() string {
 // - 做实例选择
 // - 做鉴权判断
 type GRPC struct {
-	mu    sync.Mutex
+	mu sync.Mutex
+	// conns 按 host:port 复用底层连接，避免每次 Invoke 都重新拨号。
 	conns map[string]*grpc.ClientConn
 	codec rawProtoCodec
 }
@@ -105,6 +107,7 @@ func NewGRPC() *GRPC {
 // - req.Method 必须是完整的 gRPC method 路径，例如 `/acme.foo.v1.BarService/Get`
 // - req.Payload 必须是目标请求消息的 protobuf bytes
 func (t *GRPC) Invoke(ctx context.Context, endpoint model.Endpoint, req *invokev1.UnaryInvokeRequest) (*invokev1.UnaryInvokeResponse, error) {
+	// endpoint.Address/Port 会被收敛成标准 host:port 形式。
 	target := net.JoinHostPort(endpoint.Address, strconv.Itoa(int(endpoint.Port)))
 
 	conn, err := t.conn(ctx, target)
@@ -115,6 +118,7 @@ func (t *GRPC) Invoke(ctx context.Context, endpoint model.Endpoint, req *invokev
 	request := &RawMessage{Payload: req.GetPayload()}
 	response := &RawMessage{}
 
+	// ForceCodec 让 gRPC 走我们的“原始 protobuf bytes”编解码路径。
 	if err := conn.Invoke(ctx, req.GetMethod(), request, response, grpc.ForceCodec(t.codec)); err != nil {
 		return nil, err
 	}
@@ -131,6 +135,7 @@ func (t *GRPC) conn(ctx context.Context, target string) (*grpc.ClientConn, error
 	defer t.mu.Unlock()
 
 	if conn, ok := t.conns[target]; ok {
+		// 已有连接直接复用，避免重复建链带来的时延与资源开销。
 		return conn, nil
 	}
 
@@ -144,6 +149,7 @@ func (t *GRPC) conn(ctx context.Context, target string) (*grpc.ClientConn, error
 		return nil, err
 	}
 
+	// 只有拨号成功后才放进缓存，避免缓存半初始化连接。
 	t.conns[target] = conn
 	return conn, nil
 }

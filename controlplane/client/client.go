@@ -18,9 +18,11 @@ import (
 
 // State 保存 controlplane 最近一次下发到 dataplane 的可生效状态。
 type State struct {
-	mu           sync.RWMutex
-	snapshots    map[string]*controlv1.ServiceSnapshot
-	routePolicy  map[string]*controlv1.RoutePolicy
+	mu sync.RWMutex
+	// snapshots/routePolicy 按 serviceKey 保存“可按服务查询”的当前状态。
+	snapshots   map[string]*controlv1.ServiceSnapshot
+	routePolicy map[string]*controlv1.RoutePolicy
+	// lastSnapshot/lastPolicy 主要服务于测试与调试观察。
 	lastSnapshot *controlv1.ServiceSnapshot
 	lastPolicy   *controlv1.RoutePolicy
 }
@@ -34,6 +36,7 @@ func (s *State) SetSnapshot(snapshot *controlv1.ServiceSnapshot) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	if s.snapshots == nil {
+		// 懒初始化可以让空 State 在没有控制面消息时保持零值可用。
 		s.snapshots = make(map[string]*controlv1.ServiceSnapshot)
 	}
 	s.snapshots[serviceKey(snapshot.GetService().GetNamespace(), snapshot.GetService().GetEnv(), snapshot.GetService().GetService())] = snapshot
@@ -74,6 +77,7 @@ func (s *State) ResolveSnapshot(target model.ServiceRef) (model.ServiceSnapshot,
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 
+	// lookupSnapshot 内部会做“精确 env 命中 -> 忽略 env 回退”的两级查找。
 	snapshot := s.lookupSnapshot(target)
 	if snapshot == nil {
 		return model.ServiceSnapshot{}, false
@@ -122,11 +126,13 @@ func (c *Client) State() *State {
 // Run 在后台持续维护连接，并在断开后按固定间隔重连。
 func (c *Client) Run(ctx context.Context, identity *controlv1.DataplaneIdentity) error {
 	if identity == nil {
+		// 没有 identity 时控制面连接没有语义，因此直接返回。
 		return nil
 	}
 
 	backoff := heartbeatInterval(c.cfg)
 	for {
+		// 每一轮循环都代表“一次完整连接生命周期”。
 		err := c.connectOnce(ctx, identity)
 		if err == nil || ctx.Err() != nil {
 			return err
@@ -137,6 +143,7 @@ func (c *Client) Run(ctx context.Context, identity *controlv1.DataplaneIdentity)
 			slog.String("error", err.Error()),
 		)
 
+		// 当前实现用固定 backoff；后续若需要再升级为指数退避。
 		timer := time.NewTimer(backoff)
 		select {
 		case <-ctx.Done():
@@ -149,6 +156,7 @@ func (c *Client) Run(ctx context.Context, identity *controlv1.DataplaneIdentity)
 
 // connectOnce 建立一轮新的控制面连接并维持心跳。
 func (c *Client) connectOnce(ctx context.Context, identity *controlv1.DataplaneIdentity) error {
+	// 建链超时和整条 stream 生命周期区分开，避免拨号无限阻塞。
 	dialCtx, cancel := context.WithTimeout(ctx, connectTimeout(c.cfg))
 	defer cancel()
 
@@ -163,6 +171,7 @@ func (c *Client) connectOnce(ctx context.Context, identity *controlv1.DataplaneI
 	}
 	defer conn.Close()
 
+	// Connect 建立的是控制面双向流，而不是普通 unary 调用。
 	stream, err := controlv1.NewMeshControlPlaneServiceClient(conn).Connect(ctx)
 	if err != nil {
 		return err
@@ -179,6 +188,7 @@ func (c *Client) connectOnce(ctx context.Context, identity *controlv1.DataplaneI
 		return err
 	}
 
+	// 接收循环单独放 goroutine，主循环才能同时处理心跳和 ctx 取消。
 	recvErrCh := make(chan error, 1)
 	go func() {
 		recvErrCh <- c.recvLoop(stream)
@@ -191,10 +201,12 @@ func (c *Client) connectOnce(ctx context.Context, identity *controlv1.DataplaneI
 		select {
 		case err := <-recvErrCh:
 			if err == io.EOF {
+				// 对端正常关闭流，视为本轮连接自然结束。
 				return nil
 			}
 			return err
 		case <-ticker.C:
+			// 当前 heartbeat 只负责维持活性，不承载额外状态。
 			if err := stream.Send(&controlv1.ConnectRequest{
 				Body: &controlv1.ConnectRequest_Heartbeat{
 					Heartbeat: &controlv1.DataplaneHeartbeat{
@@ -206,6 +218,7 @@ func (c *Client) connectOnce(ctx context.Context, identity *controlv1.DataplaneI
 				return err
 			}
 		case <-ctx.Done():
+			// CloseSend 用于提示服务端本端不再发送更多消息。
 			_ = stream.CloseSend()
 			return ctx.Err()
 		}
@@ -222,8 +235,10 @@ func (c *Client) recvLoop(stream grpc.BidiStreamingClient[controlv1.ConnectReque
 
 		switch body := resp.GetBody().(type) {
 		case *controlv1.ConnectResponse_ServiceSnapshot:
+			// 服务快照主要影响 resolver/source overlay。
 			c.state.SetSnapshot(body.ServiceSnapshot)
 		case *controlv1.ConnectResponse_RoutePolicy:
+			// 路由策略主要影响 invoke timeout/retry。
 			c.state.SetRoutePolicy(body.RoutePolicy)
 		}
 	}
@@ -253,6 +268,7 @@ func (s *State) lookupSnapshot(target model.ServiceRef) *controlv1.ServiceSnapsh
 	if snapshot, ok := s.snapshots[serviceKey(target.Namespace, target.Env, target.Service)]; ok {
 		return snapshot
 	}
+	// 回退到不带 env 的键，兼容更粗粒度的服务快照下发。
 	return s.snapshots[serviceKey(target.Namespace, "", target.Service)]
 }
 
@@ -264,6 +280,7 @@ func (s *State) lookupPolicy(target model.ServiceRef) *controlv1.RoutePolicy {
 	if policy, ok := s.routePolicy[serviceKey(target.Namespace, target.Env, target.Service)]; ok {
 		return policy
 	}
+	// 策略也保留相同回退路径，减少控制面演进时的兼容成本。
 	return s.routePolicy[serviceKey(target.Namespace, "", target.Service)]
 }
 

@@ -18,6 +18,8 @@ func newValidateCmd() *cobra.Command {
 		Use:   "validate",
 		Short: "Validate service-mesh config",
 		RunE: func(cmd *cobra.Command, args []string) error {
+			// validate 复用和 run 完全相同的加载链路，
+			// 这样“校验通过”的配置就等价于“run 至少能完成启动前检查”。
 			cfg, err := config.Load(opts)
 			if err != nil {
 				return err

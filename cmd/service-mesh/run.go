@@ -23,16 +23,20 @@ func newRunCmd() *cobra.Command {
 		Use:   "run",
 		Short: "Run service-mesh runtime",
 		RunE: func(cmd *cobra.Command, args []string) error {
+			// Load 内部会依次执行：
+			// 默认值 -> 文件 -> 环境变量 -> CLI 覆盖 -> Normalize -> Validate。
 			cfg, err := config.Load(opts)
 			if err != nil {
 				return err
 			}
 
+			// 顶层 App 负责再往下选择 agent / sidecar 具体运行时。
 			app, err := servicemeshapp.New(cfg)
 			if err != nil {
 				return err
 			}
 
+			// 用进程信号驱动上下文取消，保证 Ctrl+C 时能优雅退出 gRPC server 等资源。
 			ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 			defer stop()
 

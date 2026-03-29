@@ -17,7 +17,9 @@ import (
 // - 已经完成规范化和校验的配置
 // - 根据 mode 选择好的具体 runtime.Runner
 type App struct {
+	// Config 指向已经完成默认值补齐和校验的最终配置。
 	Config *config.Config
+	// Runner 是按 mode 选出的具体运行时实现。
 	Runner runtime.Runner
 }
 
@@ -31,16 +33,19 @@ func New(cfg *config.Config) (*App, error) {
 
 	switch cfg.Mode {
 	case model.ModeAgent:
+		// agent 模式面向“同机多个业务共享一个本地网关入口”的场景。
 		runner, err = agent.New(cfg)
 		if err != nil {
 			return nil, err
 		}
 	case model.ModeSidecar:
+		// sidecar 模式面向“单业务实例绑定一个本地代理”的场景。
 		runner, err = sidecar.New(cfg)
 		if err != nil {
 			return nil, err
 		}
 	default:
+		// 这里保留显式错误，避免 mode 拼写错误时静默落到错误运行模式。
 		return nil, fmt.Errorf("unsupported mode: %s", cfg.Mode)
 	}
 

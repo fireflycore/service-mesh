@@ -23,6 +23,7 @@ type Resolver interface {
 	Resolve(ctx context.Context, target model.ServiceRef) (model.Endpoint, error)
 }
 
+// PolicySource 表示一个可选的运行时策略来源，通常来自 controlplane。
 type PolicySource interface {
 	ResolveRoutePolicy(target model.ServiceRef) (*controlv1.RoutePolicy, bool)
 }
@@ -41,14 +42,22 @@ type LocalIdentity struct {
 // - timeout：避免一次调用无限挂住
 // - retry：在典型瞬时错误下做最小重试
 type Options struct {
-	Timeout          time.Duration
-	PerTryTimeout    time.Duration
+	// Timeout 是整次调用预算。
+	Timeout time.Duration
+	// PerTryTimeout 是单次尝试预算。
+	PerTryTimeout time.Duration
+	// RetryMaxAttempts 包含第一次尝试。
 	RetryMaxAttempts uint32
-	RetryBackoff     time.Duration
-	RetryableCodes   map[codes.Code]struct{}
-	Telemetry        *meshtelemetry.Emitter
-	PolicySource     PolicySource
-	LocalIdentity    *LocalIdentity
+	// RetryBackoff 控制两次重试之间的等待时间。
+	RetryBackoff time.Duration
+	// RetryableCodes 决定哪些错误允许重试。
+	RetryableCodes map[codes.Code]struct{}
+	// Telemetry 用于记录最小 trace/metric。
+	Telemetry *meshtelemetry.Emitter
+	// PolicySource 允许控制面覆盖本地 timeout/retry。
+	PolicySource PolicySource
+	// LocalIdentity 仅在 sidecar 模式下注入，用于补齐 caller/target 维度。
+	LocalIdentity *LocalIdentity
 }
 
 // Service 是本地 MeshInvokeService 的最小实现。
@@ -68,6 +77,7 @@ type Service struct {
 }
 
 func NewService(authorizer authz.Authorizer, resolver Resolver, transport transport.Invoker, options ...Options) *Service {
+	// 先拿默认值，只有调用者显式传入时才覆盖。
 	opts := defaultOptions()
 	if len(options) > 0 {
 		opts = normalizeOptions(options[0])
@@ -90,6 +100,7 @@ func NewService(authorizer authz.Authorizer, resolver Resolver, transport transp
 // 这样 transport 才能在不知道具体业务 proto Go 类型的情况下，
 // 直接按原始 protobuf bytes 做通用转发。
 func (s *Service) UnaryInvoke(ctx context.Context, req *invokev1.UnaryInvokeRequest) (*invokev1.UnaryInvokeResponse, error) {
+	// 入口先做最小参数校验，避免后续 resolver/transport 收到脏数据。
 	if req.GetTarget() == nil || req.GetTarget().GetService() == "" {
 		return nil, status.Error(codes.InvalidArgument, "target.service is required")
 	}
@@ -100,9 +111,11 @@ func (s *Service) UnaryInvoke(ctx context.Context, req *invokev1.UnaryInvokeRequ
 		return nil, status.Error(codes.InvalidArgument, "method must be a full grpc method path")
 	}
 	if err := applyLocalIdentity(req, s.options.LocalIdentity); err != nil {
+		// sidecar 入口若检测到 caller identity 冲突，会在这里直接拒绝。
 		return nil, status.Error(codes.InvalidArgument, err.Error())
 	}
 
+	// 从 proto target 收敛成内部统一目标结构，方便 resolver/source 共用。
 	target := model.ServiceRef{
 		Service:   req.GetTarget().GetService(),
 		Namespace: req.GetTarget().GetNamespace(),
@@ -112,6 +125,7 @@ func (s *Service) UnaryInvoke(ctx context.Context, req *invokev1.UnaryInvokeRequ
 
 	effectiveOptions := s.options
 	if s.options.PolicySource != nil {
+		// 控制面若下发了 RoutePolicy，则在当前调用维度覆盖本地静态配置。
 		if policy, ok := s.options.PolicySource.ResolveRoutePolicy(target); ok {
 			effectiveOptions = mergeOptionsWithPolicy(s.options, policy)
 		}
@@ -120,6 +134,7 @@ func (s *Service) UnaryInvoke(ctx context.Context, req *invokev1.UnaryInvokeRequ
 	callCtx := ctx
 	callTimeout := effectiveOptions.Timeout
 	if req.GetContext().GetTimeoutMs() > 0 {
+		// 请求上下文里的 timeout_ms 优先级高于本地默认值。
 		callTimeout = time.Duration(req.GetContext().GetTimeoutMs()) * time.Millisecond
 	}
 	if callTimeout > 0 {
@@ -133,9 +148,11 @@ func (s *Service) UnaryInvoke(ctx context.Context, req *invokev1.UnaryInvokeRequ
 	defer span.End()
 	start := time.Now()
 	defer func() {
+		// 无论成功失败都记录 latency，便于后续看尾延迟。
 		effectiveOptions.Telemetry.RecordLatency(spanCtx, time.Since(start))
 	}()
 
+	// authz 放在 resolver 之前，避免未授权请求也去访问目录和下游。
 	if err := s.authorizer.Check(spanCtx, req); err != nil {
 		span.RecordError(err)
 		span.SetStatus(otelcodes.Error, "authz failed")
@@ -145,6 +162,7 @@ func (s *Service) UnaryInvoke(ctx context.Context, req *invokev1.UnaryInvokeRequ
 
 	attempts := effectiveOptions.RetryMaxAttempts
 	if attempts == 0 {
+		// 兜底保证至少执行一次。
 		attempts = 1
 	}
 
@@ -153,13 +171,16 @@ func (s *Service) UnaryInvoke(ctx context.Context, req *invokev1.UnaryInvokeRequ
 		attemptCtx := spanCtx
 		attemptCancel := func() {}
 		if effectiveOptions.PerTryTimeout > 0 {
+			// 每次尝试都在总预算内再切一层子超时，避免单次重试吃满全部预算。
 			attemptCtx, attemptCancel = context.WithTimeout(callCtx, effectiveOptions.PerTryTimeout)
 		}
 
+		// 先解析出本次调用真正命中的实例。
 		endpoint, err := s.resolver.Resolve(attemptCtx, target)
 		if err != nil {
 			lastErr = err
 		} else {
+			// transport 只负责把请求真正发给下游业务实例。
 			resp, invokeErr := s.transport.Invoke(attemptCtx, endpoint, req)
 			if invokeErr == nil {
 				attemptCancel()
@@ -171,12 +192,14 @@ func (s *Service) UnaryInvoke(ctx context.Context, req *invokev1.UnaryInvokeRequ
 		}
 		attemptCancel()
 
+		// 当前错误若不符合 retry 策略，就立即结束重试循环。
 		if !shouldRetry(lastErr, attempt, attempts, effectiveOptions) {
 			break
 		}
 		effectiveOptions.Telemetry.RecordRetry(spanCtx, int64(attempt))
 
 		if effectiveOptions.RetryBackoff > 0 {
+			// backoff 期间也要响应 ctx 取消，避免退出时还卡在 sleep。
 			timer := time.NewTimer(effectiveOptions.RetryBackoff)
 			select {
 			case <-spanCtx.Done():
@@ -189,6 +212,7 @@ func (s *Service) UnaryInvoke(ctx context.Context, req *invokev1.UnaryInvokeRequ
 	}
 
 	if errors.Is(lastErr, context.Canceled) {
+		// Canceled 和 DeadlineExceeded 会被精确映射到 gRPC 语义错误码。
 		span.RecordError(lastErr)
 		span.SetStatus(otelcodes.Error, "invoke canceled")
 		effectiveOptions.Telemetry.RecordFailure(spanCtx, "canceled")
@@ -200,6 +224,7 @@ func (s *Service) UnaryInvoke(ctx context.Context, req *invokev1.UnaryInvokeRequ
 		effectiveOptions.Telemetry.RecordFailure(spanCtx, "deadline_exceeded")
 		return nil, status.Error(codes.DeadlineExceeded, lastErr.Error())
 	}
+	// 其余错误统一按 Unavailable 返回，表示这次目标调用未成功完成。
 	span.RecordError(lastErr)
 	span.SetStatus(otelcodes.Error, "invoke failed")
 	effectiveOptions.Telemetry.RecordFailure(spanCtx, "invoke")
@@ -208,6 +233,7 @@ func (s *Service) UnaryInvoke(ctx context.Context, req *invokev1.UnaryInvokeRequ
 
 func defaultOptions() Options {
 	return normalizeOptions(Options{
+		// 默认值与配置默认值保持一致，保证直接构造 Service 时语义稳定。
 		Timeout:          1500 * time.Millisecond,
 		PerTryTimeout:    500 * time.Millisecond,
 		RetryMaxAttempts: 2,
@@ -221,6 +247,7 @@ func defaultOptions() Options {
 }
 
 func normalizeOptions(options Options) Options {
+	// 下面依次补齐每个运行时选项的兜底值。
 	if options.Timeout <= 0 {
 		options.Timeout = 1500 * time.Millisecond
 	}
@@ -241,6 +268,7 @@ func normalizeOptions(options Options) Options {
 		}
 	}
 	if options.Telemetry == nil {
+		// 没有 telemetry 时用 noop emitter，避免调用方处处判空。
 		options.Telemetry = meshtelemetry.NewNoopEmitter()
 	}
 	if options.LocalIdentity != nil {
@@ -253,6 +281,7 @@ func normalizeOptions(options Options) Options {
 func OptionsFromConfig(cfg config.InvokeConfig) Options {
 	retryable := make(map[codes.Code]struct{}, len(cfg.RetryableCodes))
 	for _, codeName := range cfg.RetryableCodes {
+		// 这里只接受少量明确支持的字符串，未知值会被静默忽略。
 		switch strings.ToLower(strings.TrimSpace(codeName)) {
 		case "canceled":
 			retryable[codes.Canceled] = struct{}{}
@@ -269,6 +298,7 @@ func OptionsFromConfig(cfg config.InvokeConfig) Options {
 		}
 	}
 
+	// 配置层用毫秒和字符串表达，运行时层统一转成 Duration 和枚举 map。
 	return normalizeOptions(Options{
 		Timeout:          time.Duration(cfg.TimeoutMS) * time.Millisecond,
 		PerTryTimeout:    time.Duration(cfg.PerTryTimeoutMS) * time.Millisecond,
@@ -280,9 +310,11 @@ func OptionsFromConfig(cfg config.InvokeConfig) Options {
 
 func shouldRetry(err error, attempt, attempts uint32, options Options) bool {
 	if err == nil || attempt >= attempts {
+		// 成功或已经达到最大尝试次数，都不再重试。
 		return false
 	}
 	if errors.Is(err, context.Canceled) {
+		// 用户主动取消时不应该再做任何重试。
 		return false
 	}
 	if errors.Is(err, context.DeadlineExceeded) {
@@ -295,6 +327,7 @@ func shouldRetry(err error, attempt, attempts uint32, options Options) bool {
 	return ok
 }
 
+// mergeOptionsWithPolicy 把控制面策略覆盖到当前调用生效选项上。
 func mergeOptionsWithPolicy(base Options, policy *controlv1.RoutePolicy) Options {
 	if policy == nil {
 		return base
@@ -313,6 +346,7 @@ func mergeOptionsWithPolicy(base Options, policy *controlv1.RoutePolicy) Options
 		}
 	}
 
+	// 覆盖后再次走 normalize，确保最终选项仍然完整可用。
 	return normalizeOptions(merged)
 }
 
@@ -322,12 +356,14 @@ func applyLocalIdentity(req *invokev1.UnaryInvokeRequest, identity *LocalIdentit
 		return nil
 	}
 	if req.Context == nil {
+		// sidecar 允许调用方省略 context，这里会自动补一个空壳。
 		req.Context = &invokev1.InvocationContext{}
 	}
 	if req.Context.Caller == nil {
 		req.Context.Caller = &invokev1.Caller{}
 	}
 
+	// 如果调用方显式传了 caller 维度，就要求它和 sidecar 绑定身份一致。
 	if err := ensureMatch("context.caller.service", req.Context.Caller.Service, identity.Service); err != nil {
 		return err
 	}
@@ -352,12 +388,14 @@ func applyLocalIdentity(req *invokev1.UnaryInvokeRequest, identity *LocalIdentit
 	}
 
 	if strings.TrimSpace(req.Target.Namespace) == "" {
+		// target 缺省时回退到 sidecar 绑定的 namespace / env。
 		req.Target.Namespace = identity.Namespace
 	}
 	if strings.TrimSpace(req.Target.Env) == "" {
 		req.Target.Env = identity.Env
 	}
 	if strings.TrimSpace(req.Context.TraceId) == "" {
+		// 当前阶段还没有完整 trace 上下文透传时，先生成一个最小 trace_id。
 		req.Context.TraceId = defaultTraceID(identity)
 	}
 

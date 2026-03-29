@@ -12,10 +12,12 @@ import (
 func Validate(cfg Config) error {
 	switch cfg.Mode {
 	case model.ModeAgent:
+		// agent 只要求本地监听地址存在，其余容量参数允许走默认值。
 		if cfg.Runtime.Agent.Listen.Address == "" {
 			return errors.New("runtime.agent.listen.address is required")
 		}
 	case model.ModeSidecar:
+		// sidecar 不仅要能监听，还必须知道自己绑定的是哪个本地服务。
 		if cfg.Runtime.Sidecar.Listen.Address == "" {
 			return errors.New("runtime.sidecar.listen.address is required")
 		}
@@ -28,10 +30,12 @@ func Validate(cfg Config) error {
 
 	switch cfg.Source.Kind {
 	case model.SourceConsul:
+		// Consul 模式至少需要知道要连哪一个 Consul 集群。
 		if cfg.Source.Consul.Address == "" {
 			return errors.New("source.consul.address is required")
 		}
 	case model.SourceEtcd:
+		// etcd 模式至少需要有一个 endpoint，后续客户端才能真正建链。
 		if len(cfg.Source.Etcd.Endpoints) == 0 {
 			return errors.New("source.etcd.endpoints is required")
 		}
@@ -42,9 +46,11 @@ func Validate(cfg Config) error {
 	if cfg.Authz.Target == "" {
 		return errors.New("authz.target is required")
 	}
+	// 单次尝试不能大于整次调用预算，否则超时语义会前后矛盾。
 	if cfg.Invoke.PerTryTimeoutMS > cfg.Invoke.TimeoutMS {
 		return errors.New("invoke.per_try_timeout_ms cannot be greater than invoke.timeout_ms")
 	}
+	// 控制面只要启用，就必须能给出明确连接目标。
 	if cfg.ControlPlane.Enabled && cfg.ControlPlane.Target == "" {
 		return errors.New("controlplane.target is required when controlplane is enabled")
 	}

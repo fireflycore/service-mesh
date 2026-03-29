@@ -36,8 +36,13 @@ func New(cfg *config.Config) (*Runner, error) {
 		return nil, err
 	}
 
+	authorizer, err := authz.NewExtAuthz(cfg.Authz)
+	if err != nil {
+		return nil, err
+	}
+
 	invokeService := invoke.NewService(
-		authz.NewAllowAll(),
+		authorizer,
 		resolver.New(provider, balancer.NewRoundRobin()),
 		transport.NewGRPC(),
 	)

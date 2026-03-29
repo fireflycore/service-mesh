@@ -1,0 +1,44 @@
+package config
+
+import "strings"
+
+func Normalize(cfg *Config) {
+	cfg.Mode = strings.TrimSpace(strings.ToLower(cfg.Mode))
+	cfg.Source.Kind = strings.TrimSpace(strings.ToLower(cfg.Source.Kind))
+
+	cfg.Runtime.Agent.Listen.Network = strings.TrimSpace(strings.ToLower(cfg.Runtime.Agent.Listen.Network))
+	cfg.Runtime.Sidecar.Listen.Network = strings.TrimSpace(strings.ToLower(cfg.Runtime.Sidecar.Listen.Network))
+
+	cfg.Runtime.Agent.Listen.Address = strings.TrimSpace(cfg.Runtime.Agent.Listen.Address)
+	cfg.Runtime.Sidecar.Listen.Address = strings.TrimSpace(cfg.Runtime.Sidecar.Listen.Address)
+	cfg.Authz.Target = strings.TrimSpace(cfg.Authz.Target)
+	cfg.ControlPlane.Target = strings.TrimSpace(cfg.ControlPlane.Target)
+	cfg.Source.Consul.Address = strings.TrimSpace(cfg.Source.Consul.Address)
+	cfg.Source.Consul.Namespace = strings.TrimSpace(cfg.Source.Consul.Namespace)
+	cfg.Source.Etcd.Namespace = strings.TrimSpace(cfg.Source.Etcd.Namespace)
+
+	if cfg.Runtime.Agent.WorkerCount <= 0 {
+		cfg.Runtime.Agent.WorkerCount = 4
+	}
+	if cfg.Runtime.Agent.MaxInflight <= 0 {
+		cfg.Runtime.Agent.MaxInflight = 1024
+	}
+	if cfg.Authz.TimeoutMS == 0 {
+		cfg.Authz.TimeoutMS = 500
+	}
+	if cfg.ControlPlane.HeartbeatIntervalMS == 0 {
+		cfg.ControlPlane.HeartbeatIntervalMS = 3000
+	}
+	if cfg.ControlPlane.ConnectTimeoutMS == 0 {
+		cfg.ControlPlane.ConnectTimeoutMS = 1000
+	}
+	if cfg.Source.Etcd.DialTimeoutMS == 0 {
+		cfg.Source.Etcd.DialTimeoutMS = 1000
+	}
+	if cfg.Runtime.Agent.Listen.Network == "" {
+		cfg.Runtime.Agent.Listen.Network = "unix"
+	}
+	if cfg.Runtime.Sidecar.Listen.Network == "" {
+		cfg.Runtime.Sidecar.Listen.Network = "tcp"
+	}
+}

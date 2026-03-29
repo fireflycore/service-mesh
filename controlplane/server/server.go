@@ -51,6 +51,7 @@ func (s *Server) handleRegister(stream grpc.BidiStreamingServer[controlv1.Connec
 	service := &controlv1.ServiceRef{
 		Service:   register.GetIdentity().GetService(),
 		Namespace: register.GetIdentity().GetNamespace(),
+		Env:       register.GetIdentity().GetEnv(),
 	}
 
 	serviceSnapshot, routePolicy := s.store.Lookup(service)

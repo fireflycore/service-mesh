@@ -11,6 +11,10 @@ func Normalize(cfg *Config) {
 
 	cfg.Runtime.Agent.Listen.Address = strings.TrimSpace(cfg.Runtime.Agent.Listen.Address)
 	cfg.Runtime.Sidecar.Listen.Address = strings.TrimSpace(cfg.Runtime.Sidecar.Listen.Address)
+	cfg.Runtime.Sidecar.ServiceName = strings.TrimSpace(cfg.Runtime.Sidecar.ServiceName)
+	cfg.Runtime.Sidecar.InstanceID = strings.TrimSpace(cfg.Runtime.Sidecar.InstanceID)
+	cfg.Runtime.Sidecar.Namespace = strings.TrimSpace(cfg.Runtime.Sidecar.Namespace)
+	cfg.Runtime.Sidecar.Env = strings.TrimSpace(cfg.Runtime.Sidecar.Env)
 	cfg.Authz.Target = strings.TrimSpace(cfg.Authz.Target)
 	cfg.ControlPlane.Target = strings.TrimSpace(cfg.ControlPlane.Target)
 	cfg.Source.Consul.Address = strings.TrimSpace(cfg.Source.Consul.Address)
@@ -52,6 +56,9 @@ func Normalize(cfg *Config) {
 	}
 	if cfg.Runtime.Sidecar.Listen.Network == "" {
 		cfg.Runtime.Sidecar.Listen.Network = "tcp"
+	}
+	if cfg.Runtime.Sidecar.ServiceName == "" {
+		cfg.Runtime.Sidecar.ServiceName = "service-mesh-sidecar"
 	}
 	if len(cfg.Invoke.RetryableCodes) == 0 {
 		cfg.Invoke.RetryableCodes = []string{

@@ -19,6 +19,7 @@ func Default() Config {
 					Network: "tcp",
 					Address: "127.0.0.1:19090",
 				},
+				ServiceName: "service-mesh-sidecar",
 			},
 		},
 		Invoke: InvokeConfig{

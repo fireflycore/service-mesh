@@ -31,6 +31,8 @@ type Params struct {
 	Listen        config.ListenConfig
 	ServiceName   string
 	InstanceID    string
+	Namespace     string
+	Env           string
 	LogAttributes []slog.Attr
 }
 
@@ -146,6 +148,7 @@ func (r *Runner) runControlPlane(ctx context.Context) {
 		NodeId:      r.nodeID(),
 		Namespace:   r.namespace(),
 		Service:     r.serviceName(),
+		Env:         r.env(),
 	}
 
 	if err := r.controlplaneClient.Run(ctx, identity); err != nil && !errors.Is(err, context.Canceled) {
@@ -204,12 +207,19 @@ func (r *Runner) nodeID() string {
 }
 
 func (r *Runner) namespace() string {
+	if strings.TrimSpace(r.params.Namespace) != "" {
+		return r.params.Namespace
+	}
 	switch r.cfg.Source.Kind {
 	case "etcd":
 		return r.cfg.Source.Etcd.Namespace
 	default:
 		return r.cfg.Source.Consul.Namespace
 	}
+}
+
+func (r *Runner) env() string {
+	return strings.TrimSpace(r.params.Env)
 }
 
 func hostname() string {

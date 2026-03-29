@@ -17,6 +17,7 @@ func TestServerConnectSendsSnapshotAndPolicy(t *testing.T) {
 		Service: &controlv1.ServiceRef{
 			Service:   "orders",
 			Namespace: "default",
+			Env:       "dev",
 		},
 		Endpoints: []*controlv1.Endpoint{
 			{Address: "10.0.0.10", Port: 19090, Weight: 1},
@@ -27,6 +28,7 @@ func TestServerConnectSendsSnapshotAndPolicy(t *testing.T) {
 		Service: &controlv1.ServiceRef{
 			Service:   "orders",
 			Namespace: "default",
+			Env:       "dev",
 		},
 		Retry: &controlv1.RetryPolicy{
 			MaxAttempts:     2,
@@ -73,6 +75,7 @@ func TestServerConnectSendsSnapshotAndPolicy(t *testing.T) {
 					NodeId:      "node-1",
 					Namespace:   "default",
 					Service:     "orders",
+					Env:         "dev",
 				},
 			},
 		},

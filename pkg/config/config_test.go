@@ -29,3 +29,13 @@ func TestInvokePerTryTimeoutCannotExceedTimeout(t *testing.T) {
 		t.Fatal("expected invalid invoke timeout config to fail")
 	}
 }
+
+func TestSidecarRequiresServiceName(t *testing.T) {
+	cfg := Default()
+	cfg.Mode = "sidecar"
+	cfg.Runtime.Sidecar.ServiceName = ""
+
+	if err := Validate(cfg); err == nil {
+		t.Fatal("expected sidecar without service_name to fail")
+	}
+}

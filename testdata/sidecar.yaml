@@ -7,6 +7,8 @@ runtime:
       address: 127.0.0.1:19091
     service_name: config
     instance_id: config-1
+    namespace: /microservice/lhdht
+    env: dev
 
 source:
   kind: etcd

@@ -29,6 +29,8 @@ func TestSidecarReusesInvokeRuntime(t *testing.T) {
 	cfg.Runtime.Sidecar.Listen.Address = address
 	cfg.Runtime.Sidecar.ServiceName = "config"
 	cfg.Runtime.Sidecar.InstanceID = "config-1"
+	cfg.Runtime.Sidecar.Namespace = "/microservice/lhdht"
+	cfg.Runtime.Sidecar.Env = "dev"
 	cfg.ControlPlane.Enabled = false
 	cfg.Telemetry.TraceEnabled = false
 	cfg.Telemetry.MetricEnabled = false

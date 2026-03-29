@@ -33,6 +33,8 @@ type SidecarRuntimeConfig struct {
 	Listen      ListenConfig `yaml:"listen"`
 	ServiceName string       `yaml:"service_name"`
 	InstanceID  string       `yaml:"instance_id"`
+	Namespace   string       `yaml:"namespace"`
+	Env         string       `yaml:"env"`
 }
 
 type ListenConfig struct {

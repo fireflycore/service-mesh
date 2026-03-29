@@ -18,6 +18,9 @@ func Validate(cfg Config) error {
 		if cfg.Runtime.Sidecar.Listen.Address == "" {
 			return errors.New("runtime.sidecar.listen.address is required")
 		}
+		if cfg.Runtime.Sidecar.ServiceName == "" {
+			return errors.New("runtime.sidecar.service_name is required")
+		}
 	default:
 		return fmt.Errorf("%w: %s", serrs.ErrInvalidMode, cfg.Mode)
 	}

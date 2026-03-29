@@ -20,6 +20,7 @@ func TestClientReceivesSnapshotAndPolicy(t *testing.T) {
 		Service: &controlv1.ServiceRef{
 			Service:   "orders",
 			Namespace: "default",
+			Env:       "dev",
 		},
 		Endpoints: []*controlv1.Endpoint{
 			{Address: "10.0.0.10", Port: 19090, Weight: 1},
@@ -30,6 +31,7 @@ func TestClientReceivesSnapshotAndPolicy(t *testing.T) {
 		Service: &controlv1.ServiceRef{
 			Service:   "orders",
 			Namespace: "default",
+			Env:       "dev",
 		},
 		Retry: &controlv1.RetryPolicy{
 			MaxAttempts:     2,
@@ -69,6 +71,7 @@ func TestClientReceivesSnapshotAndPolicy(t *testing.T) {
 			NodeId:      "node-1",
 			Namespace:   "default",
 			Service:     "orders",
+			Env:         "dev",
 		})
 	}()
 
@@ -93,6 +96,7 @@ func TestClientReceivesSnapshotAndPolicy(t *testing.T) {
 	snapshotValue, ok := client.State().ResolveSnapshot(model.ServiceRef{
 		Service:   "orders",
 		Namespace: "default",
+		Env:       "dev",
 	})
 	if !ok {
 		t.Fatal("expected state snapshot lookup to succeed")
@@ -104,6 +108,7 @@ func TestClientReceivesSnapshotAndPolicy(t *testing.T) {
 	policy, ok := client.State().ResolveRoutePolicy(model.ServiceRef{
 		Service:   "orders",
 		Namespace: "default",
+		Env:       "dev",
 	})
 	if !ok || policy == nil {
 		t.Fatal("expected state route policy lookup to succeed")

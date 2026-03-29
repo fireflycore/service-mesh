@@ -1,0 +1,69 @@
+syntax = "proto3";
+
+package acme.control.v1;
+
+message DataplaneIdentity {
+  string dataplane_id = 1;
+  string mode = 2;
+  string node_id = 3;
+  string namespace = 4;
+  string service = 5;
+}
+
+message DataplaneRegister {
+  DataplaneIdentity identity = 1;
+  string version = 2;
+}
+
+message DataplaneHeartbeat {
+  string dataplane_id = 1;
+  int64 timestamp_unix_ms = 2;
+}
+
+message Endpoint {
+  string address = 1;
+  uint32 port = 2;
+  uint32 weight = 3;
+}
+
+message ServiceRef {
+  string service = 1;
+  string namespace = 2;
+  string env = 3;
+  uint32 port = 4;
+}
+
+message ServiceSnapshot {
+  ServiceRef service = 1;
+  repeated Endpoint endpoints = 2;
+  string revision = 3;
+}
+
+message RetryPolicy {
+  uint32 max_attempts = 1;
+  uint64 per_try_timeout_ms = 2;
+}
+
+message RoutePolicy {
+  ServiceRef service = 1;
+  RetryPolicy retry = 2;
+  uint64 timeout_ms = 3;
+}
+
+message ConnectRequest {
+  oneof body {
+    DataplaneRegister register = 1;
+    DataplaneHeartbeat heartbeat = 2;
+  }
+}
+
+message ConnectResponse {
+  oneof body {
+    ServiceSnapshot service_snapshot = 1;
+    RoutePolicy route_policy = 2;
+  }
+}
+
+service MeshControlPlaneService {
+  rpc Connect(stream ConnectRequest) returns (stream ConnectResponse);
+}

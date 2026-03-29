@@ -1,0 +1,46 @@
+syntax = "proto3";
+
+package acme.invoke.v1;
+
+message ServiceRef {
+  string service = 1;
+  string namespace = 2;
+  string env = 3;
+  uint32 port = 4;
+}
+
+message Caller {
+  string app_id = 1;
+  string service = 2;
+  string namespace = 3;
+  string env = 4;
+}
+
+message MetadataEntry {
+  string key = 1;
+  repeated string values = 2;
+}
+
+message InvocationContext {
+  Caller caller = 1;
+  repeated MetadataEntry metadata = 2;
+  uint64 timeout_ms = 3;
+  string trace_id = 4;
+}
+
+message UnaryInvokeRequest {
+  ServiceRef target = 1;
+  string method = 2;
+  InvocationContext context = 3;
+  bytes payload = 4;
+  string codec = 5;
+}
+
+message UnaryInvokeResponse {
+  bytes payload = 1;
+  string codec = 2;
+}
+
+service MeshInvokeService {
+  rpc UnaryInvoke(UnaryInvokeRequest) returns (UnaryInvokeResponse);
+}

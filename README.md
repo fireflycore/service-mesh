@@ -38,7 +38,10 @@ service
   - 接入真实 `consul source`
   - 接入真实 gRPC transport
   - `method` 统一使用完整 gRPC method path
-  - 继续把 `ext_authz` 保持为下一步重点增强项
+- 第四版当前范围已完成：
+  - 接入真实 `ext_authz client`
+  - 实现 `fail-close / fail-open`
+  - 实现 Authz timeout 与错误处理
 
 ## 设计原则
 

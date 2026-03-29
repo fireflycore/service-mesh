@@ -27,6 +27,19 @@ service
   -> remote service
 ```
 
+## 当前实现进度
+
+- 第一版：
+  - 完成仓库骨架、CLI、配置模型
+- 第二版：
+  - 跑通 `Buf CLI`
+  - 跑通本地 `Invoke` gRPC 服务
+- 第三版当前范围已完成：
+  - 接入真实 `consul source`
+  - 接入真实 gRPC transport
+  - `method` 统一使用完整 gRPC method path
+  - 继续把 `ext_authz` 保持为下一步重点增强项
+
 ## 设计原则
 
 - 业务服务不直接调 Authz

@@ -35,6 +35,33 @@ service
 - Authz 直接复用 `Envoy ext_authz`
 - Observe 优先复用 OpenTelemetry
 
+## Proto 工具链
+
+- Proto 源文件放在：
+  - `proto/acme/invoke/v1`
+  - `proto/acme/control/v1`
+- 使用 `proto/buf.yaml` 管理模块、lint 与 breaking
+- 使用仓库根 `buf.gen.yaml` 管理生成规则
+- 生成代码输出到：
+  - `.gen/proto`
+
+常用命令：
+
+```bash
+buf lint proto
+buf generate
+```
+
+参考：
+
+- https://buf.build/docs/
+
+## 依赖装配
+
+- 第一版先手写构造与装配
+- 当前不引入 `Wire`
+- 当 controlplane / dataplane / source / integration 的装配复杂度明显上升后，再评估是否引入
+
 ## 文档入口
 
 当前设计文档位于：

@@ -58,6 +58,14 @@ service
   - 让 controlplane 下发 `ServiceSnapshot` 真正进入 dataplane 生效链
   - 让 controlplane 下发 `RoutePolicy` 真正影响 timeout / retry
   - 保持 controlplane 优先、本地配置与目录回退
+- 第十版当前范围已完成：
+  - 让 `sidecar` 运行时复用同一套 dataplane 主链
+  - 让 `sidecar` 具备 invoke / controlplane / telemetry 基础能力
+  - 验证 agent / sidecar 只保留运行时身份与监听差异
+- 第十版当前目标：
+  - 让 `sidecar` 运行时复用同一套 dataplane 主链
+  - 让 `sidecar` 具备 invoke / controlplane / telemetry 基础能力
+  - 验证 agent / sidecar 只保留运行时身份与监听差异
 
 ## 设计原则
 

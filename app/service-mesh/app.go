@@ -27,7 +27,10 @@ func New(cfg *config.Config) (*App, error) {
 			return nil, err
 		}
 	case model.ModeSidecar:
-		runner = sidecar.New(cfg)
+		runner, err = sidecar.New(cfg)
+		if err != nil {
+			return nil, err
+		}
 	default:
 		return nil, fmt.Errorf("unsupported mode: %s", cfg.Mode)
 	}

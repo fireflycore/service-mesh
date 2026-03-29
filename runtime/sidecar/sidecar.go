@@ -1,29 +1,25 @@
 package sidecar
 
 import (
-	"context"
 	"log/slog"
 
 	"github.com/fireflycore/service-mesh/pkg/config"
+	"github.com/fireflycore/service-mesh/runtime/shared"
 )
 
-type Runner struct {
-	cfg *config.Config
-}
+type Runner = shared.Runner
 
-func New(cfg *config.Config) *Runner {
-	return &Runner{cfg: cfg}
-}
-
-func (r *Runner) Run(ctx context.Context) error {
-	slog.Info("service-mesh sidecar started",
-		slog.String("listen_network", r.cfg.Runtime.Sidecar.Listen.Network),
-		slog.String("listen_address", r.cfg.Runtime.Sidecar.Listen.Address),
-		slog.String("service_name", r.cfg.Runtime.Sidecar.ServiceName),
-		slog.String("instance_id", r.cfg.Runtime.Sidecar.InstanceID),
-	)
-
-	<-ctx.Done()
-	slog.Info("service-mesh sidecar stopped")
-	return nil
+func New(cfg *config.Config) (*Runner, error) {
+	return shared.New(cfg, shared.Params{
+		Mode:        "sidecar",
+		Listen:      cfg.Runtime.Sidecar.Listen,
+		ServiceName: cfg.Runtime.Sidecar.ServiceName,
+		InstanceID:  cfg.Runtime.Sidecar.InstanceID,
+		LogAttributes: []slog.Attr{
+			slog.String("service_name", cfg.Runtime.Sidecar.ServiceName),
+			slog.String("instance_id", cfg.Runtime.Sidecar.InstanceID),
+			slog.String("source_kind", cfg.Source.Kind),
+			slog.String("authz_target", cfg.Authz.Target),
+		},
+	})
 }

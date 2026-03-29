@@ -312,3 +312,95 @@ func TestServiceUnaryInvokeAppliesControlPlaneRetryPolicy(t *testing.T) {
 		t.Fatalf("unexpected payload: got=%s want=%s", got, want)
 	}
 }
+
+func TestServiceUnaryInvokeAppliesSidecarLocalIdentity(t *testing.T) {
+	svc := NewService(
+		authz.NewAllowAll(),
+		resolver.New(memory.New(map[string]model.ServiceSnapshot{
+			"/microservice/lhdht/dev/orders": {
+				Service: model.ServiceRef{
+					Service:   "orders",
+					Namespace: "/microservice/lhdht",
+					Env:       "dev",
+				},
+				Endpoints: []model.Endpoint{{Address: "127.0.0.1", Port: 8080, Weight: 1}},
+			},
+		}), balancer.NewRoundRobin()),
+		&fakeTransport{},
+		Options{
+			LocalIdentity: &LocalIdentity{
+				AppID:     "config",
+				Service:   "config",
+				Namespace: "/microservice/lhdht",
+				Env:       "dev",
+			},
+		},
+	)
+
+	req := &invokev1.UnaryInvokeRequest{
+		Target: &invokev1.ServiceRef{
+			Service: "orders",
+		},
+		Method:  "/acme.orders.v1.OrderService/GetOrder",
+		Payload: []byte("hello"),
+		Codec:   "json",
+	}
+
+	resp, err := svc.UnaryInvoke(context.Background(), req)
+	if err != nil {
+		t.Fatalf("expected local identity enrichment to succeed: %v", err)
+	}
+	if got, want := req.GetContext().GetCaller().GetService(), "config"; got != want {
+		t.Fatalf("unexpected caller service: got=%s want=%s", got, want)
+	}
+	if got, want := req.GetTarget().GetNamespace(), "/microservice/lhdht"; got != want {
+		t.Fatalf("unexpected target namespace: got=%s want=%s", got, want)
+	}
+	if got, want := req.GetTarget().GetEnv(), "dev"; got != want {
+		t.Fatalf("unexpected target env: got=%s want=%s", got, want)
+	}
+	if req.GetContext().GetTraceId() == "" {
+		t.Fatal("expected trace id to be generated")
+	}
+	if got, want := string(resp.GetPayload()), "127.0.0.1:hello"; got != want {
+		t.Fatalf("unexpected payload: got=%s want=%s", got, want)
+	}
+}
+
+func TestServiceUnaryInvokeRejectsConflictingSidecarIdentity(t *testing.T) {
+	svc := NewService(
+		authz.NewAllowAll(),
+		resolver.New(memory.New(nil), balancer.NewRoundRobin()),
+		&fakeTransport{},
+		Options{
+			LocalIdentity: &LocalIdentity{
+				Service:   "config",
+				Namespace: "/microservice/lhdht",
+				Env:       "dev",
+			},
+		},
+	)
+
+	_, err := svc.UnaryInvoke(context.Background(), &invokev1.UnaryInvokeRequest{
+		Target: &invokev1.ServiceRef{
+			Service: "orders",
+		},
+		Method: "/acme.orders.v1.OrderService/GetOrder",
+		Context: &invokev1.InvocationContext{
+			Caller: &invokev1.Caller{
+				Service: "other-service",
+			},
+		},
+	})
+	if err == nil {
+		t.Fatal("expected conflicting sidecar identity to fail")
+	}
+
+	statusErr, ok := status.FromError(err)
+	if !ok {
+		t.Fatalf("expected grpc status error: %v", err)
+	}
+	if statusErr.Code() != codes.InvalidArgument {
+		t.Fatalf("unexpected status code: %s", statusErr.Code())
+	}
+}

@@ -71,6 +71,14 @@ func New(cfg *config.Config, params Params) (*Runner, error) {
 	invokeOptions := invoke.OptionsFromConfig(cfg.Invoke)
 	invokeOptions.Telemetry = emitter
 	invokeOptions.PolicySource = controlplaneClient.State()
+	if params.Mode == "sidecar" {
+		invokeOptions.LocalIdentity = &invoke.LocalIdentity{
+			AppID:     params.ServiceName,
+			Service:   params.ServiceName,
+			Namespace: strings.TrimSpace(params.Namespace),
+			Env:       strings.TrimSpace(params.Env),
+		}
+	}
 
 	invokeService := invoke.NewService(
 		authorizer,

@@ -66,6 +66,14 @@ service
   - sidecar 具备更明确的 `service / namespace / env / instance_id` 本地身份
   - controlplane register 使用 sidecar 精确身份
   - sidecar 更容易命中按服务维度下发的 snapshot / route policy
+- 第十二版当前范围已完成：
+  - sidecar 自动补齐 caller identity
+  - sidecar 自动补齐默认 `namespace / env`
+  - sidecar 拒绝与本地绑定身份冲突的调用上下文
+- 第十二版当前目标：
+  - sidecar 自动补齐 caller identity
+  - sidecar 自动补齐默认 `namespace / env`
+  - sidecar 拒绝与本地绑定身份冲突的调用上下文
 - 第十版当前目标：
   - 让 `sidecar` 运行时复用同一套 dataplane 主链
   - 让 `sidecar` 具备 invoke / controlplane / telemetry 基础能力

@@ -3,6 +3,7 @@ package invoke
 import (
 	"context"
 	"errors"
+	"strconv"
 	"strings"
 	"time"
 
@@ -26,6 +27,13 @@ type PolicySource interface {
 	ResolveRoutePolicy(target model.ServiceRef) (*controlv1.RoutePolicy, bool)
 }
 
+type LocalIdentity struct {
+	AppID     string
+	Service   string
+	Namespace string
+	Env       string
+}
+
 // Options 定义 Invoke 服务在第六版引入的可靠性策略。
 //
 // 这些策略的目标很明确：
@@ -39,6 +47,7 @@ type Options struct {
 	RetryableCodes   map[codes.Code]struct{}
 	Telemetry        *meshtelemetry.Emitter
 	PolicySource     PolicySource
+	LocalIdentity    *LocalIdentity
 }
 
 // Service 是本地 MeshInvokeService 的最小实现。
@@ -88,6 +97,9 @@ func (s *Service) UnaryInvoke(ctx context.Context, req *invokev1.UnaryInvokeRequ
 	}
 	if !strings.HasPrefix(req.GetMethod(), "/") {
 		return nil, status.Error(codes.InvalidArgument, "method must be a full grpc method path")
+	}
+	if err := applyLocalIdentity(req, s.options.LocalIdentity); err != nil {
+		return nil, status.Error(codes.InvalidArgument, err.Error())
 	}
 
 	target := model.ServiceRef{
@@ -230,6 +242,9 @@ func normalizeOptions(options Options) Options {
 	if options.Telemetry == nil {
 		options.Telemetry = meshtelemetry.NewNoopEmitter()
 	}
+	if options.LocalIdentity != nil {
+		options.LocalIdentity = normalizeLocalIdentity(*options.LocalIdentity)
+	}
 	return options
 }
 
@@ -298,4 +313,82 @@ func mergeOptionsWithPolicy(base Options, policy *controlv1.RoutePolicy) Options
 	}
 
 	return normalizeOptions(merged)
+}
+
+func applyLocalIdentity(req *invokev1.UnaryInvokeRequest, identity *LocalIdentity) error {
+	if identity == nil {
+		return nil
+	}
+	if req.Context == nil {
+		req.Context = &invokev1.InvocationContext{}
+	}
+	if req.Context.Caller == nil {
+		req.Context.Caller = &invokev1.Caller{}
+	}
+
+	if err := ensureMatch("context.caller.service", req.Context.Caller.Service, identity.Service); err != nil {
+		return err
+	}
+	if err := ensureMatch("context.caller.namespace", req.Context.Caller.Namespace, identity.Namespace); err != nil {
+		return err
+	}
+	if err := ensureMatch("context.caller.env", req.Context.Caller.Env, identity.Env); err != nil {
+		return err
+	}
+
+	if strings.TrimSpace(req.Context.Caller.AppId) == "" {
+		req.Context.Caller.AppId = identity.AppID
+	}
+	if strings.TrimSpace(req.Context.Caller.Service) == "" {
+		req.Context.Caller.Service = identity.Service
+	}
+	if strings.TrimSpace(req.Context.Caller.Namespace) == "" {
+		req.Context.Caller.Namespace = identity.Namespace
+	}
+	if strings.TrimSpace(req.Context.Caller.Env) == "" {
+		req.Context.Caller.Env = identity.Env
+	}
+
+	if strings.TrimSpace(req.Target.Namespace) == "" {
+		req.Target.Namespace = identity.Namespace
+	}
+	if strings.TrimSpace(req.Target.Env) == "" {
+		req.Target.Env = identity.Env
+	}
+	if strings.TrimSpace(req.Context.TraceId) == "" {
+		req.Context.TraceId = defaultTraceID(identity)
+	}
+
+	return nil
+}
+
+func normalizeLocalIdentity(identity LocalIdentity) *LocalIdentity {
+	identity.AppID = strings.TrimSpace(identity.AppID)
+	identity.Service = strings.TrimSpace(identity.Service)
+	identity.Namespace = strings.TrimSpace(identity.Namespace)
+	identity.Env = strings.TrimSpace(identity.Env)
+	if identity.AppID == "" {
+		identity.AppID = identity.Service
+	}
+	return &identity
+}
+
+func ensureMatch(field, actual, expected string) error {
+	actual = strings.TrimSpace(actual)
+	expected = strings.TrimSpace(expected)
+	if actual == "" || expected == "" {
+		return nil
+	}
+	if actual != expected {
+		return errors.New(field + " conflicts with sidecar local identity")
+	}
+	return nil
+}
+
+func defaultTraceID(identity *LocalIdentity) string {
+	base := "mesh"
+	if identity != nil && strings.TrimSpace(identity.Service) != "" {
+		base = strings.TrimSpace(identity.Service)
+	}
+	return base + "-" + strconv.FormatInt(time.Now().UnixNano(), 10)
 }

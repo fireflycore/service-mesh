@@ -18,10 +18,14 @@ type App struct {
 
 func New(cfg *config.Config) (*App, error) {
 	var runner runtime.Runner
+	var err error
 
 	switch cfg.Mode {
 	case model.ModeAgent:
-		runner = agent.New(cfg)
+		runner, err = agent.New(cfg)
+		if err != nil {
+			return nil, err
+		}
 	case model.ModeSidecar:
 		runner = sidecar.New(cfg)
 	default:

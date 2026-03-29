@@ -8,6 +8,7 @@ import (
 	"testing"
 	"time"
 
+	controlv1 "github.com/fireflycore/service-mesh/.gen/proto/acme/control/v1"
 	invokev1 "github.com/fireflycore/service-mesh/.gen/proto/acme/invoke/v1"
 	"github.com/fireflycore/service-mesh/dataplane/authz"
 	"github.com/fireflycore/service-mesh/dataplane/balancer"
@@ -128,6 +129,14 @@ func (t *slowTransport) Invoke(ctx context.Context, _ model.Endpoint, _ *invokev
 	return nil, ctx.Err()
 }
 
+type fakePolicySource struct {
+	policy *controlv1.RoutePolicy
+}
+
+func (s fakePolicySource) ResolveRoutePolicy(target model.ServiceRef) (*controlv1.RoutePolicy, bool) {
+	return s.policy, s.policy != nil
+}
+
 func TestServiceUnaryInvokeRejectsInvalidRequest(t *testing.T) {
 	svc := NewService(
 		authz.NewAllowAll(),
@@ -240,5 +249,66 @@ func TestServiceUnaryInvokeTimeout(t *testing.T) {
 	}
 	if !errors.Is(statusErr.Err(), context.DeadlineExceeded) && statusErr.Code() != codes.DeadlineExceeded {
 		t.Fatalf("unexpected status code: %s", statusErr.Code())
+	}
+}
+
+func TestServiceUnaryInvokeAppliesControlPlaneRetryPolicy(t *testing.T) {
+	transport := &flakyTransport{}
+
+	svc := NewService(
+		authz.NewAllowAll(),
+		resolver.New(memory.New(map[string]model.ServiceSnapshot{
+			"default/dev/orders": {
+				Service: model.ServiceRef{
+					Service:   "orders",
+					Namespace: "default",
+					Env:       "dev",
+				},
+				Endpoints: []model.Endpoint{{Address: "10.0.0.2", Port: 8080, Weight: 1}},
+			},
+		}), balancer.NewRoundRobin()),
+		transport,
+		Options{
+			Timeout:          time.Second,
+			PerTryTimeout:    200 * time.Millisecond,
+			RetryMaxAttempts: 1,
+			RetryBackoff:     0,
+			RetryableCodes: map[codes.Code]struct{}{
+				codes.Unavailable: {},
+			},
+			PolicySource: fakePolicySource{
+				policy: &controlv1.RoutePolicy{
+					Service: &controlv1.ServiceRef{
+						Service:   "orders",
+						Namespace: "default",
+						Env:       "dev",
+					},
+					Retry: &controlv1.RetryPolicy{
+						MaxAttempts:     2,
+						PerTryTimeoutMs: 200,
+					},
+				},
+			},
+		},
+	)
+
+	resp, err := svc.UnaryInvoke(context.Background(), &invokev1.UnaryInvokeRequest{
+		Target: &invokev1.ServiceRef{
+			Service:   "orders",
+			Namespace: "default",
+			Env:       "dev",
+		},
+		Method:  "/acme.orders.v1.OrderService/GetOrder",
+		Payload: []byte("hello"),
+		Codec:   "json",
+	})
+	if err != nil {
+		t.Fatalf("expected policy-driven retry to succeed: %v", err)
+	}
+	if got, want := transport.attempts, 2; got != want {
+		t.Fatalf("unexpected retry count after controlplane policy: got=%d want=%d", got, want)
+	}
+	if got, want := string(resp.GetPayload()), "10.0.0.2:hello"; got != want {
+		t.Fatalf("unexpected payload: got=%s want=%s", got, want)
 	}
 }

@@ -4,11 +4,13 @@ import (
 	"context"
 	"io"
 	"log/slog"
+	"strings"
 	"sync"
 	"time"
 
 	controlv1 "github.com/fireflycore/service-mesh/.gen/proto/acme/control/v1"
 	"github.com/fireflycore/service-mesh/pkg/config"
+	"github.com/fireflycore/service-mesh/pkg/model"
 	"go.opentelemetry.io/contrib/instrumentation/google.golang.org/grpc/otelgrpc"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials/insecure"
@@ -16,19 +18,37 @@ import (
 
 type State struct {
 	mu           sync.RWMutex
+	snapshots    map[string]*controlv1.ServiceSnapshot
+	routePolicy  map[string]*controlv1.RoutePolicy
 	lastSnapshot *controlv1.ServiceSnapshot
 	lastPolicy   *controlv1.RoutePolicy
 }
 
 func (s *State) SetSnapshot(snapshot *controlv1.ServiceSnapshot) {
+	if snapshot == nil || snapshot.GetService() == nil {
+		return
+	}
+
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	if s.snapshots == nil {
+		s.snapshots = make(map[string]*controlv1.ServiceSnapshot)
+	}
+	s.snapshots[serviceKey(snapshot.GetService().GetNamespace(), snapshot.GetService().GetEnv(), snapshot.GetService().GetService())] = snapshot
 	s.lastSnapshot = snapshot
 }
 
 func (s *State) SetRoutePolicy(policy *controlv1.RoutePolicy) {
+	if policy == nil || policy.GetService() == nil {
+		return
+	}
+
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	if s.routePolicy == nil {
+		s.routePolicy = make(map[string]*controlv1.RoutePolicy)
+	}
+	s.routePolicy[serviceKey(policy.GetService().GetNamespace(), policy.GetService().GetEnv(), policy.GetService().GetService())] = policy
 	s.lastPolicy = policy
 }
 
@@ -42,6 +62,35 @@ func (s *State) RoutePolicy() *controlv1.RoutePolicy {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 	return s.lastPolicy
+}
+
+func (s *State) ResolveSnapshot(target model.ServiceRef) (model.ServiceSnapshot, bool) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+
+	snapshot := s.lookupSnapshot(target)
+	if snapshot == nil {
+		return model.ServiceSnapshot{}, false
+	}
+
+	return model.ServiceSnapshot{
+		Service: model.ServiceRef{
+			Service:   snapshot.GetService().GetService(),
+			Namespace: snapshot.GetService().GetNamespace(),
+			Env:       snapshot.GetService().GetEnv(),
+			Port:      snapshot.GetService().GetPort(),
+		},
+		Endpoints: toModelEndpoints(snapshot.GetEndpoints()),
+		Revision:  snapshot.GetRevision(),
+	}, true
+}
+
+func (s *State) ResolveRoutePolicy(target model.ServiceRef) (*controlv1.RoutePolicy, bool) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+
+	policy := s.lookupPolicy(target)
+	return policy, policy != nil
 }
 
 type Client struct {
@@ -179,4 +228,49 @@ func connectTimeout(cfg config.ControlPlaneConfig) time.Duration {
 		return time.Second
 	}
 	return time.Duration(cfg.ConnectTimeoutMS) * time.Millisecond
+}
+
+func (s *State) lookupSnapshot(target model.ServiceRef) *controlv1.ServiceSnapshot {
+	if s.snapshots == nil {
+		return nil
+	}
+	if snapshot, ok := s.snapshots[serviceKey(target.Namespace, target.Env, target.Service)]; ok {
+		return snapshot
+	}
+	return s.snapshots[serviceKey(target.Namespace, "", target.Service)]
+}
+
+func (s *State) lookupPolicy(target model.ServiceRef) *controlv1.RoutePolicy {
+	if s.routePolicy == nil {
+		return nil
+	}
+	if policy, ok := s.routePolicy[serviceKey(target.Namespace, target.Env, target.Service)]; ok {
+		return policy
+	}
+	return s.routePolicy[serviceKey(target.Namespace, "", target.Service)]
+}
+
+func serviceKey(namespace, env, service string) string {
+	namespace = strings.TrimSpace(namespace)
+	env = strings.TrimSpace(env)
+	service = strings.TrimSpace(service)
+	if env == "" {
+		return namespace + "/" + service
+	}
+	return namespace + "/" + env + "/" + service
+}
+
+func toModelEndpoints(endpoints []*controlv1.Endpoint) []model.Endpoint {
+	result := make([]model.Endpoint, 0, len(endpoints))
+	for _, endpoint := range endpoints {
+		if endpoint == nil {
+			continue
+		}
+		result = append(result, model.Endpoint{
+			Address: endpoint.GetAddress(),
+			Port:    endpoint.GetPort(),
+			Weight:  endpoint.GetWeight(),
+		})
+	}
+	return result
 }

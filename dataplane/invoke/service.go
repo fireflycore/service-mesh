@@ -6,6 +6,7 @@ import (
 	"strings"
 	"time"
 
+	controlv1 "github.com/fireflycore/service-mesh/.gen/proto/acme/control/v1"
 	invokev1 "github.com/fireflycore/service-mesh/.gen/proto/acme/invoke/v1"
 	"github.com/fireflycore/service-mesh/dataplane/authz"
 	meshtelemetry "github.com/fireflycore/service-mesh/dataplane/telemetry"
@@ -21,6 +22,10 @@ type Resolver interface {
 	Resolve(ctx context.Context, target model.ServiceRef) (model.Endpoint, error)
 }
 
+type PolicySource interface {
+	ResolveRoutePolicy(target model.ServiceRef) (*controlv1.RoutePolicy, bool)
+}
+
 // Options 定义 Invoke 服务在第六版引入的可靠性策略。
 //
 // 这些策略的目标很明确：
@@ -33,6 +38,7 @@ type Options struct {
 	RetryBackoff     time.Duration
 	RetryableCodes   map[codes.Code]struct{}
 	Telemetry        *meshtelemetry.Emitter
+	PolicySource     PolicySource
 }
 
 // Service 是本地 MeshInvokeService 的最小实现。
@@ -84,8 +90,22 @@ func (s *Service) UnaryInvoke(ctx context.Context, req *invokev1.UnaryInvokeRequ
 		return nil, status.Error(codes.InvalidArgument, "method must be a full grpc method path")
 	}
 
+	target := model.ServiceRef{
+		Service:   req.GetTarget().GetService(),
+		Namespace: req.GetTarget().GetNamespace(),
+		Env:       req.GetTarget().GetEnv(),
+		Port:      req.GetTarget().GetPort(),
+	}
+
+	effectiveOptions := s.options
+	if s.options.PolicySource != nil {
+		if policy, ok := s.options.PolicySource.ResolveRoutePolicy(target); ok {
+			effectiveOptions = mergeOptionsWithPolicy(s.options, policy)
+		}
+	}
+
 	callCtx := ctx
-	callTimeout := s.options.Timeout
+	callTimeout := effectiveOptions.Timeout
 	if req.GetContext().GetTimeoutMs() > 0 {
 		callTimeout = time.Duration(req.GetContext().GetTimeoutMs()) * time.Millisecond
 	}
@@ -95,29 +115,22 @@ func (s *Service) UnaryInvoke(ctx context.Context, req *invokev1.UnaryInvokeRequ
 		defer cancel()
 	}
 
-	s.options.Telemetry.RecordRequest(callCtx)
-	spanCtx, span := s.options.Telemetry.StartInvoke(callCtx, req)
+	effectiveOptions.Telemetry.RecordRequest(callCtx)
+	spanCtx, span := effectiveOptions.Telemetry.StartInvoke(callCtx, req)
 	defer span.End()
 	start := time.Now()
 	defer func() {
-		s.options.Telemetry.RecordLatency(spanCtx, time.Since(start))
+		effectiveOptions.Telemetry.RecordLatency(spanCtx, time.Since(start))
 	}()
 
 	if err := s.authorizer.Check(spanCtx, req); err != nil {
 		span.RecordError(err)
 		span.SetStatus(otelcodes.Error, "authz failed")
-		s.options.Telemetry.RecordFailure(spanCtx, "authz")
+		effectiveOptions.Telemetry.RecordFailure(spanCtx, "authz")
 		return nil, status.Errorf(codes.PermissionDenied, "authz check failed: %v", err)
 	}
 
-	target := model.ServiceRef{
-		Service:   req.GetTarget().GetService(),
-		Namespace: req.GetTarget().GetNamespace(),
-		Env:       req.GetTarget().GetEnv(),
-		Port:      req.GetTarget().GetPort(),
-	}
-
-	attempts := s.options.RetryMaxAttempts
+	attempts := effectiveOptions.RetryMaxAttempts
 	if attempts == 0 {
 		attempts = 1
 	}
@@ -126,8 +139,8 @@ func (s *Service) UnaryInvoke(ctx context.Context, req *invokev1.UnaryInvokeRequ
 	for attempt := uint32(1); attempt <= attempts; attempt++ {
 		attemptCtx := spanCtx
 		attemptCancel := func() {}
-		if s.options.PerTryTimeout > 0 {
-			attemptCtx, attemptCancel = context.WithTimeout(callCtx, s.options.PerTryTimeout)
+		if effectiveOptions.PerTryTimeout > 0 {
+			attemptCtx, attemptCancel = context.WithTimeout(callCtx, effectiveOptions.PerTryTimeout)
 		}
 
 		endpoint, err := s.resolver.Resolve(attemptCtx, target)
@@ -145,13 +158,13 @@ func (s *Service) UnaryInvoke(ctx context.Context, req *invokev1.UnaryInvokeRequ
 		}
 		attemptCancel()
 
-		if !s.shouldRetry(lastErr, attempt, attempts) {
+		if !shouldRetry(lastErr, attempt, attempts, effectiveOptions) {
 			break
 		}
-		s.options.Telemetry.RecordRetry(spanCtx, int64(attempt))
+		effectiveOptions.Telemetry.RecordRetry(spanCtx, int64(attempt))
 
-		if s.options.RetryBackoff > 0 {
-			timer := time.NewTimer(s.options.RetryBackoff)
+		if effectiveOptions.RetryBackoff > 0 {
+			timer := time.NewTimer(effectiveOptions.RetryBackoff)
 			select {
 			case <-spanCtx.Done():
 				timer.Stop()
@@ -165,18 +178,18 @@ func (s *Service) UnaryInvoke(ctx context.Context, req *invokev1.UnaryInvokeRequ
 	if errors.Is(lastErr, context.Canceled) {
 		span.RecordError(lastErr)
 		span.SetStatus(otelcodes.Error, "invoke canceled")
-		s.options.Telemetry.RecordFailure(spanCtx, "canceled")
+		effectiveOptions.Telemetry.RecordFailure(spanCtx, "canceled")
 		return nil, status.Error(codes.Canceled, lastErr.Error())
 	}
 	if errors.Is(lastErr, context.DeadlineExceeded) {
 		span.RecordError(lastErr)
 		span.SetStatus(otelcodes.Error, "invoke deadline exceeded")
-		s.options.Telemetry.RecordFailure(spanCtx, "deadline_exceeded")
+		effectiveOptions.Telemetry.RecordFailure(spanCtx, "deadline_exceeded")
 		return nil, status.Error(codes.DeadlineExceeded, lastErr.Error())
 	}
 	span.RecordError(lastErr)
 	span.SetStatus(otelcodes.Error, "invoke failed")
-	s.options.Telemetry.RecordFailure(spanCtx, "invoke")
+	effectiveOptions.Telemetry.RecordFailure(spanCtx, "invoke")
 	return nil, status.Errorf(codes.Unavailable, "invoke target failed: %v", lastErr)
 }
 
@@ -249,7 +262,7 @@ func OptionsFromConfig(cfg config.InvokeConfig) Options {
 	})
 }
 
-func (s *Service) shouldRetry(err error, attempt, attempts uint32) bool {
+func shouldRetry(err error, attempt, attempts uint32, options Options) bool {
 	if err == nil || attempt >= attempts {
 		return false
 	}
@@ -257,11 +270,32 @@ func (s *Service) shouldRetry(err error, attempt, attempts uint32) bool {
 		return false
 	}
 	if errors.Is(err, context.DeadlineExceeded) {
-		_, ok := s.options.RetryableCodes[codes.DeadlineExceeded]
+		_, ok := options.RetryableCodes[codes.DeadlineExceeded]
 		return ok
 	}
 
 	statusCode := status.Code(err)
-	_, ok := s.options.RetryableCodes[statusCode]
+	_, ok := options.RetryableCodes[statusCode]
 	return ok
+}
+
+func mergeOptionsWithPolicy(base Options, policy *controlv1.RoutePolicy) Options {
+	if policy == nil {
+		return base
+	}
+
+	merged := base
+	if policy.GetTimeoutMs() > 0 {
+		merged.Timeout = time.Duration(policy.GetTimeoutMs()) * time.Millisecond
+	}
+	if policy.GetRetry() != nil {
+		if policy.GetRetry().GetMaxAttempts() > 0 {
+			merged.RetryMaxAttempts = policy.GetRetry().GetMaxAttempts()
+		}
+		if policy.GetRetry().GetPerTryTimeoutMs() > 0 {
+			merged.PerTryTimeout = time.Duration(policy.GetRetry().GetPerTryTimeoutMs()) * time.Millisecond
+		}
+	}
+
+	return normalizeOptions(merged)
 }

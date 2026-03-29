@@ -50,11 +50,14 @@ service
   - 接入 OTel trace provider
   - 接入 OTel metric provider
   - 为 Invoke 调用链补充基础埋点与 gRPC instrumentation
-- 第八版当前目标：
 - 第八版当前范围已完成：
   - 最小 `MeshControlPlaneService`
   - dataplane register / heartbeat
   - 基础 `ServiceSnapshot / RoutePolicy` 下发
+- 第九版当前范围已完成：
+  - 让 controlplane 下发 `ServiceSnapshot` 真正进入 dataplane 生效链
+  - 让 controlplane 下发 `RoutePolicy` 真正影响 timeout / retry
+  - 保持 controlplane 优先、本地配置与目录回退
 
 ## 设计原则
 

@@ -44,6 +44,8 @@ func New(cfg *config.Config) (*Runner, error) {
 	if err != nil {
 		return nil, err
 	}
+	controlplaneClient := controlclient.New(cfg.ControlPlane)
+	provider = source.NewOverlay(provider, controlplaneClient.State())
 
 	authorizer, err := authz.NewExtAuthz(cfg.Authz)
 	if err != nil {
@@ -62,6 +64,7 @@ func New(cfg *config.Config) (*Runner, error) {
 
 	invokeOptions := invoke.OptionsFromConfig(cfg.Invoke)
 	invokeOptions.Telemetry = emitter
+	invokeOptions.PolicySource = controlplaneClient.State()
 
 	invokeService := invoke.NewService(
 		authorizer,
@@ -77,7 +80,7 @@ func New(cfg *config.Config) (*Runner, error) {
 		cfg:                cfg,
 		grpcServer:         grpcServer,
 		telemetry:          telemetryProviders,
-		controlplaneClient: controlclient.New(cfg.ControlPlane),
+		controlplaneClient: controlplaneClient,
 	}, nil
 }
 

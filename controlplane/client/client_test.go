@@ -10,6 +10,7 @@ import (
 	"github.com/fireflycore/service-mesh/controlplane/server"
 	"github.com/fireflycore/service-mesh/controlplane/snapshot"
 	"github.com/fireflycore/service-mesh/pkg/config"
+	"github.com/fireflycore/service-mesh/pkg/model"
 	"google.golang.org/grpc"
 )
 
@@ -87,5 +88,27 @@ func TestClientReceivesSnapshotAndPolicy(t *testing.T) {
 
 	if err := <-errCh; err != nil && err != context.Canceled {
 		t.Fatalf("unexpected run error: %v", err)
+	}
+
+	snapshotValue, ok := client.State().ResolveSnapshot(model.ServiceRef{
+		Service:   "orders",
+		Namespace: "default",
+	})
+	if !ok {
+		t.Fatal("expected state snapshot lookup to succeed")
+	}
+	if got, want := snapshotValue.Endpoints[0].Address, "10.0.0.10"; got != want {
+		t.Fatalf("unexpected snapshot address: got=%s want=%s", got, want)
+	}
+
+	policy, ok := client.State().ResolveRoutePolicy(model.ServiceRef{
+		Service:   "orders",
+		Namespace: "default",
+	})
+	if !ok || policy == nil {
+		t.Fatal("expected state route policy lookup to succeed")
+	}
+	if got, want := policy.GetTimeoutMs(), uint64(1500); got != want {
+		t.Fatalf("unexpected route timeout: got=%d want=%d", got, want)
 	}
 }

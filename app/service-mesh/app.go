@@ -11,11 +11,20 @@ import (
 	"github.com/fireflycore/service-mesh/runtime/sidecar"
 )
 
+// App 是 CLI 层拿到的顶层运行对象。
+//
+// 它只保留两件事情：
+// - 已经完成规范化和校验的配置
+// - 根据 mode 选择好的具体 runtime.Runner
 type App struct {
 	Config *config.Config
 	Runner runtime.Runner
 }
 
+// New 根据 mode 装配顶层应用。
+//
+// 这里故意不把 mode 分支展开到 CLI 层，
+// 而是集中在 App 内统一选择 agent / sidecar。
 func New(cfg *config.Config) (*App, error) {
 	var runner runtime.Runner
 	var err error
@@ -41,6 +50,7 @@ func New(cfg *config.Config) (*App, error) {
 	}, nil
 }
 
+// Run 直接把控制权交给底层 runner。
 func (a *App) Run(ctx context.Context) error {
 	return a.Runner.Run(ctx)
 }

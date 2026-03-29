@@ -10,6 +10,12 @@ import (
 	"github.com/spf13/cobra"
 )
 
+// newRunCmd 创建 run 子命令。
+//
+// 它负责：
+// - 读取并校验配置
+// - 构造 App
+// - 绑定进程信号，优雅退出 runtime
 func newRunCmd() *cobra.Command {
 	var opts config.LoadOptions
 

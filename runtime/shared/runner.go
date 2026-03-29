@@ -26,6 +26,10 @@ import (
 	"google.golang.org/grpc"
 )
 
+// Params 描述 agent / sidecar 两类运行时的可变部分。
+//
+// shared runner 把“共性的 dataplane 装配链”集中起来，
+// 再用 Params 表达不同模式之间的身份和监听差异。
 type Params struct {
 	Mode          string
 	Listen        config.ListenConfig
@@ -36,6 +40,7 @@ type Params struct {
 	LogAttributes []slog.Attr
 }
 
+// Runner 是 agent / sidecar 共用的运行时实现。
 type Runner struct {
 	cfg                *config.Config
 	params             Params
@@ -44,6 +49,14 @@ type Runner struct {
 	controlplaneClient *controlclient.Client
 }
 
+// New 装配共享运行时。
+//
+// 它统一串起：
+// - source / overlay
+// - authz
+// - invoke service
+// - controlplane client
+// - telemetry
 func New(cfg *config.Config, params Params) (*Runner, error) {
 	provider, err := source.FromConfig(cfg.Source)
 	if err != nil {
@@ -99,6 +112,7 @@ func New(cfg *config.Config, params Params) (*Runner, error) {
 	}, nil
 }
 
+// Run 负责真正启动本地 gRPC dataplane。
 func (r *Runner) Run(ctx context.Context) error {
 	defer func() {
 		if r.telemetry != nil {
@@ -145,6 +159,7 @@ func (r *Runner) Run(ctx context.Context) error {
 	return nil
 }
 
+// runControlPlane 在后台维持控制面连接。
 func (r *Runner) runControlPlane(ctx context.Context) {
 	if r.controlplaneClient == nil {
 		return
@@ -168,6 +183,7 @@ func (r *Runner) runControlPlane(ctx context.Context) {
 	}
 }
 
+// listen 根据当前 mode 的监听配置创建 listener。
 func (r *Runner) listen() (net.Listener, func(), error) {
 	network := r.params.Listen.Network
 	address := r.params.Listen.Address
@@ -193,6 +209,7 @@ func (r *Runner) listen() (net.Listener, func(), error) {
 	return listener, cleanup, nil
 }
 
+// dataplaneID 优先使用外部明确提供的实例标识。
 func (r *Runner) dataplaneID() string {
 	if strings.TrimSpace(r.params.InstanceID) != "" {
 		return r.params.InstanceID
@@ -200,6 +217,7 @@ func (r *Runner) dataplaneID() string {
 	return hostname() + "-" + strconv.FormatInt(time.Now().UnixNano(), 10)
 }
 
+// serviceName 返回当前运行时注册到 controlplane 的逻辑服务名。
 func (r *Runner) serviceName() string {
 	if strings.TrimSpace(r.params.ServiceName) != "" {
 		return r.params.ServiceName
@@ -207,6 +225,7 @@ func (r *Runner) serviceName() string {
 	return "service-mesh-" + r.params.Mode
 }
 
+// nodeID 返回当前进程所在节点或实例标识。
 func (r *Runner) nodeID() string {
 	if strings.TrimSpace(r.params.InstanceID) != "" {
 		return r.params.InstanceID
@@ -214,6 +233,7 @@ func (r *Runner) nodeID() string {
 	return hostname()
 }
 
+// namespace 优先使用运行时显式提供的业务命名空间。
 func (r *Runner) namespace() string {
 	if strings.TrimSpace(r.params.Namespace) != "" {
 		return r.params.Namespace
@@ -226,10 +246,12 @@ func (r *Runner) namespace() string {
 	}
 }
 
+// env 返回当前运行时所在环境。
 func (r *Runner) env() string {
 	return strings.TrimSpace(r.params.Env)
 }
 
+// hostname 是 shared runner 中统一的主机名读取入口。
 func hostname() string {
 	name, err := os.Hostname()
 	if err != nil || name == "" {

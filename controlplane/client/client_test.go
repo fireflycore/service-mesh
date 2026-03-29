@@ -14,6 +14,7 @@ import (
 	"google.golang.org/grpc"
 )
 
+// TestClientReceivesSnapshotAndPolicy 验证 client 能消费并缓存控制面下发状态。
 func TestClientReceivesSnapshotAndPolicy(t *testing.T) {
 	store := snapshot.NewStore()
 	store.PutServiceSnapshot(&controlv1.ServiceSnapshot{

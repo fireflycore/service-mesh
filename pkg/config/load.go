@@ -6,6 +6,7 @@ import (
 	"gopkg.in/yaml.v3"
 )
 
+// LoadOptions 表示 CLI 与外部调用者允许覆盖的最小配置入口。
 type LoadOptions struct {
 	Path               string
 	Mode               string
@@ -14,6 +15,12 @@ type LoadOptions struct {
 	ControlPlaneTarget string
 }
 
+// Load 按固定顺序组装最终配置：
+// 1. 默认值
+// 2. 文件配置
+// 3. 环境变量覆盖
+// 4. CLI 覆盖
+// 5. Normalize + Validate
 func Load(opts LoadOptions) (*Config, error) {
 	cfg := Default()
 
@@ -38,10 +45,12 @@ func Load(opts LoadOptions) (*Config, error) {
 	return &cfg, nil
 }
 
+// Render 用于把最终配置重新输出成 YAML。
 func Render(cfg Config) ([]byte, error) {
 	return yaml.Marshal(cfg)
 }
 
+// applyEnv 把环境变量映射到运行时配置。
 func applyEnv(cfg *Config) {
 	if v := os.Getenv("SERVICE_MESH_MODE"); v != "" {
 		cfg.Mode = v
@@ -57,6 +66,7 @@ func applyEnv(cfg *Config) {
 	}
 }
 
+// applyOptions 把 CLI 参数覆盖到配置对象。
 func applyOptions(cfg *Config, opts LoadOptions) {
 	if opts.Mode != "" {
 		cfg.Mode = opts.Mode

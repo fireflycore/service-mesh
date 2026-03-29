@@ -23,6 +23,7 @@ import (
 
 type fakeTransport struct{}
 
+// Invoke 把 endpoint 地址拼到 payload 前面，便于断言命中实例。
 func (t *fakeTransport) Invoke(_ context.Context, endpoint model.Endpoint, req *invokev1.UnaryInvokeRequest) (*invokev1.UnaryInvokeResponse, error) {
 	return &invokev1.UnaryInvokeResponse{
 		Payload: append([]byte(endpoint.Address+":"), req.GetPayload()...),
@@ -107,6 +108,7 @@ type flakyTransport struct {
 	attempts int
 }
 
+// Invoke 首次返回 Unavailable，第二次返回成功。
 func (t *flakyTransport) Invoke(_ context.Context, endpoint model.Endpoint, req *invokev1.UnaryInvokeRequest) (*invokev1.UnaryInvokeResponse, error) {
 	t.mu.Lock()
 	defer t.mu.Unlock()
@@ -124,6 +126,7 @@ func (t *flakyTransport) Invoke(_ context.Context, endpoint model.Endpoint, req 
 
 type slowTransport struct{}
 
+// Invoke 一直阻塞到 ctx 超时或取消。
 func (t *slowTransport) Invoke(ctx context.Context, _ model.Endpoint, _ *invokev1.UnaryInvokeRequest) (*invokev1.UnaryInvokeResponse, error) {
 	<-ctx.Done()
 	return nil, ctx.Err()
@@ -133,10 +136,12 @@ type fakePolicySource struct {
 	policy *controlv1.RoutePolicy
 }
 
+// ResolveRoutePolicy 返回预置的控制面策略。
 func (s fakePolicySource) ResolveRoutePolicy(target model.ServiceRef) (*controlv1.RoutePolicy, bool) {
 	return s.policy, s.policy != nil
 }
 
+// TestServiceUnaryInvokeRejectsInvalidRequest 验证入口参数校验。
 func TestServiceUnaryInvokeRejectsInvalidRequest(t *testing.T) {
 	svc := NewService(
 		authz.NewAllowAll(),
@@ -158,6 +163,7 @@ func TestServiceUnaryInvokeRejectsInvalidRequest(t *testing.T) {
 	}
 }
 
+// TestServiceUnaryInvokeRetriesOnUnavailable 验证基础 retry 能力。
 func TestServiceUnaryInvokeRetriesOnUnavailable(t *testing.T) {
 	transport := &flakyTransport{}
 
@@ -206,6 +212,7 @@ func TestServiceUnaryInvokeRetriesOnUnavailable(t *testing.T) {
 	}
 }
 
+// TestServiceUnaryInvokeTimeout 验证超时预算会转成 DeadlineExceeded。
 func TestServiceUnaryInvokeTimeout(t *testing.T) {
 	svc := NewService(
 		authz.NewAllowAll(),
@@ -252,6 +259,7 @@ func TestServiceUnaryInvokeTimeout(t *testing.T) {
 	}
 }
 
+// TestServiceUnaryInvokeAppliesControlPlaneRetryPolicy 验证控制面策略能覆盖本地 retry。
 func TestServiceUnaryInvokeAppliesControlPlaneRetryPolicy(t *testing.T) {
 	transport := &flakyTransport{}
 
@@ -313,6 +321,7 @@ func TestServiceUnaryInvokeAppliesControlPlaneRetryPolicy(t *testing.T) {
 	}
 }
 
+// TestServiceUnaryInvokeAppliesSidecarLocalIdentity 验证 sidecar 会补齐 caller 与 target 上下文。
 func TestServiceUnaryInvokeAppliesSidecarLocalIdentity(t *testing.T) {
 	svc := NewService(
 		authz.NewAllowAll(),
@@ -367,6 +376,7 @@ func TestServiceUnaryInvokeAppliesSidecarLocalIdentity(t *testing.T) {
 	}
 }
 
+// TestServiceUnaryInvokeRejectsConflictingSidecarIdentity 验证冲突 caller identity 会被拒绝。
 func TestServiceUnaryInvokeRejectsConflictingSidecarIdentity(t *testing.T) {
 	svc := NewService(
 		authz.NewAllowAll(),

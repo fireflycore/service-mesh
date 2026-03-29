@@ -14,10 +14,12 @@ type fakeHealth struct {
 	err  error
 }
 
+// Service 用固定返回值模拟 Consul Health API。
 func (f fakeHealth) Service(service, tag string, passingOnly bool, q *api.QueryOptions) ([]*api.ServiceEntry, *api.QueryMeta, error) {
 	return f.rows, &api.QueryMeta{}, f.err
 }
 
+// TestProviderResolve 验证 Consul provider 能把健康实例转成内部快照。
 func TestProviderResolve(t *testing.T) {
 	provider := &Provider{
 		Config: config.ConsulSourceConfig{

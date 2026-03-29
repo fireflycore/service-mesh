@@ -2,6 +2,12 @@ package config
 
 import "github.com/fireflycore/service-mesh/pkg/model"
 
+// Default 返回一份可直接运行的默认配置。
+//
+// 默认值的原则是：
+// - 本地开发优先
+// - 能覆盖 agent / sidecar 两种模式
+// - 对 MVP 主链路保持最小可用
 func Default() Config {
 	return Config{
 		Mode: model.ModeAgent,

@@ -15,16 +15,20 @@ import (
 
 var ErrPermissionDenied = errors.New("authz permission denied")
 
+// Authorizer 定义 Invoke 前的统一鉴权接口。
 type Authorizer interface {
 	Check(ctx context.Context, req *invokev1.UnaryInvokeRequest) error
 }
 
+// AllowAll 是最简单的鉴权实现，主要用于测试或早期占位。
 type AllowAll struct{}
 
+// NewAllowAll 创建一个永远放行的 authorizer。
 func NewAllowAll() *AllowAll {
 	return &AllowAll{}
 }
 
+// Check 对所有请求都直接放行。
 func (a *AllowAll) Check(_ context.Context, _ *invokev1.UnaryInvokeRequest) error {
 	return nil
 }
@@ -75,6 +79,7 @@ func (a *ExtAuthz) Check(ctx context.Context, req *invokev1.UnaryInvokeRequest) 
 	return fmt.Errorf("%w: %s", ErrPermissionDenied, statusMessage(resp.GetStatus()))
 }
 
+// statusMessage 尽量从 ext_authz 返回状态中提取更可读的错误文本。
 func statusMessage(status *rpcstatus.Status) string {
 	if status == nil {
 		return "empty authz status"

@@ -8,6 +8,7 @@ import (
 	"github.com/fireflycore/service-mesh/pkg/model"
 )
 
+// Provider 是一个纯内存目录源，主要给单元测试使用。
 type Provider struct {
 	mu        sync.RWMutex
 	snapshots map[string]model.ServiceSnapshot
@@ -26,6 +27,7 @@ func New(snapshots map[string]model.ServiceSnapshot) *Provider {
 	return &Provider{snapshots: cloned}
 }
 
+// Name 返回 provider 标识。
 func (p *Provider) Name() string {
 	return "memory"
 }
@@ -43,6 +45,7 @@ func (p *Provider) Resolve(_ context.Context, target model.ServiceRef) (model.Se
 	return snapshot, nil
 }
 
+// serviceKey 使用和其他 source 一致的 namespace/env/service 组合键。
 func serviceKey(target model.ServiceRef) string {
 	return target.Namespace + "/" + target.Env + "/" + target.Service
 }

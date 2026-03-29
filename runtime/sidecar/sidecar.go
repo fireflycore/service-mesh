@@ -7,8 +7,10 @@ import (
 	"github.com/fireflycore/service-mesh/runtime/shared"
 )
 
+// Runner 只是 shared.Runner 的 sidecar 视图。
 type Runner = shared.Runner
 
+// New 用 sidecar 专属身份与监听参数包装 shared runner。
 func New(cfg *config.Config) (*Runner, error) {
 	return shared.New(cfg, shared.Params{
 		Mode:        "sidecar",

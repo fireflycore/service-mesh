@@ -8,6 +8,7 @@ import (
 	"github.com/fireflycore/service-mesh/pkg/model"
 )
 
+// Validate 负责检查规范化后的配置是否满足运行条件。
 func Validate(cfg Config) error {
 	switch cfg.Mode {
 	case model.ModeAgent:

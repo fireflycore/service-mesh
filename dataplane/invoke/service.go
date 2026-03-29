@@ -27,6 +27,7 @@ type PolicySource interface {
 	ResolveRoutePolicy(target model.ServiceRef) (*controlv1.RoutePolicy, bool)
 }
 
+// LocalIdentity 描述 sidecar 绑定的本地业务服务身份。
 type LocalIdentity struct {
 	AppID     string
 	Service   string
@@ -315,6 +316,7 @@ func mergeOptionsWithPolicy(base Options, policy *controlv1.RoutePolicy) Options
 	return normalizeOptions(merged)
 }
 
+// applyLocalIdentity 在 sidecar 模式下补齐本地 caller 身份与默认目标域。
 func applyLocalIdentity(req *invokev1.UnaryInvokeRequest, identity *LocalIdentity) error {
 	if identity == nil {
 		return nil
@@ -362,6 +364,7 @@ func applyLocalIdentity(req *invokev1.UnaryInvokeRequest, identity *LocalIdentit
 	return nil
 }
 
+// normalizeLocalIdentity 统一修整 sidecar 本地身份字段。
 func normalizeLocalIdentity(identity LocalIdentity) *LocalIdentity {
 	identity.AppID = strings.TrimSpace(identity.AppID)
 	identity.Service = strings.TrimSpace(identity.Service)
@@ -373,6 +376,7 @@ func normalizeLocalIdentity(identity LocalIdentity) *LocalIdentity {
 	return &identity
 }
 
+// ensureMatch 用于拒绝与 sidecar 绑定身份冲突的显式调用上下文。
 func ensureMatch(field, actual, expected string) error {
 	actual = strings.TrimSpace(actual)
 	expected = strings.TrimSpace(expected)
@@ -385,6 +389,7 @@ func ensureMatch(field, actual, expected string) error {
 	return nil
 }
 
+// defaultTraceID 在请求未带 trace_id 时生成一个最小可用值。
 func defaultTraceID(identity *LocalIdentity) string {
 	base := "mesh"
 	if identity != nil && strings.TrimSpace(identity.Service) != "" {

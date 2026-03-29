@@ -83,6 +83,7 @@ func (p *Provider) Resolve(_ context.Context, target model.ServiceRef) (model.Se
 	return snapshot, nil
 }
 
+// decodeEndpoint 从 Consul 的 ServiceEntry 中提取最小 endpoint 信息。
 func decodeEndpoint(row *api.ServiceEntry) (model.Endpoint, bool) {
 	if row == nil || row.Service == nil {
 		return model.Endpoint{}, false

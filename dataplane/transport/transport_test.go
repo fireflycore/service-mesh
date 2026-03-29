@@ -15,6 +15,7 @@ type downstreamInvokeServer struct {
 	invokev1.UnimplementedMeshInvokeServiceServer
 }
 
+// UnaryInvoke 模拟一个下游业务服务，把 payload 原样回显回来。
 func (s *downstreamInvokeServer) UnaryInvoke(_ context.Context, req *invokev1.UnaryInvokeRequest) (*invokev1.UnaryInvokeResponse, error) {
 	return &invokev1.UnaryInvokeResponse{
 		Payload: append([]byte("downstream:"), req.GetPayload()...),
@@ -22,6 +23,7 @@ func (s *downstreamInvokeServer) UnaryInvoke(_ context.Context, req *invokev1.Un
 	}, nil
 }
 
+// TestGRPCInvoke 验证 transport 可以透传原始 protobuf bytes。
 func TestGRPCInvoke(t *testing.T) {
 	server := grpc.NewServer()
 	invokev1.RegisterMeshInvokeServiceServer(server, &downstreamInvokeServer{})

@@ -11,6 +11,8 @@ import (
 	"go.opentelemetry.io/otel/trace"
 )
 
+// Emitter 以最小封装方式暴露 tracing 和 metrics 两类能力，
+// 避免 invoke 层直接持有一组零散的 OTel 句柄。
 // Emitter 封装第七版需要的最小 telemetry 能力。
 //
 // 当前只负责两类事情：

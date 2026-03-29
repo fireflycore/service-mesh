@@ -2,6 +2,12 @@ package config
 
 import "strings"
 
+// Normalize 负责把用户输入修整成更稳定的内部配置形态。
+//
+// 这里会统一做：
+// - 大小写与空白归一化
+// - 默认值补齐
+// - 保证后续 Validate 只关注“是否合法”
 func Normalize(cfg *Config) {
 	cfg.Mode = strings.TrimSpace(strings.ToLower(cfg.Mode))
 	cfg.Source.Kind = strings.TrimSpace(strings.ToLower(cfg.Source.Kind))

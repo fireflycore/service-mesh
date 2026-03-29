@@ -11,6 +11,7 @@ import (
 	"google.golang.org/grpc/credentials/insecure"
 )
 
+// TestServerConnectSendsSnapshotAndPolicy 验证 register 后会收到基础控制面状态。
 func TestServerConnectSendsSnapshotAndPolicy(t *testing.T) {
 	store := snapshot.NewStore()
 	store.PutServiceSnapshot(&controlv1.ServiceSnapshot{

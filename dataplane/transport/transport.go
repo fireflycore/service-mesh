@@ -46,6 +46,7 @@ type RawMessage struct {
 // - req.Payload 必须已经是目标请求消息的 protobuf 编码结果
 type rawProtoCodec struct{}
 
+// Marshal 直接透传已经编码好的 protobuf bytes。
 func (c rawProtoCodec) Marshal(v any) ([]byte, error) {
 	msg, ok := v.(*RawMessage)
 	if !ok {
@@ -54,6 +55,7 @@ func (c rawProtoCodec) Marshal(v any) ([]byte, error) {
 	return msg.Payload, nil
 }
 
+// Unmarshal 直接把下游返回的原始 protobuf bytes 收进 RawMessage。
 func (c rawProtoCodec) Unmarshal(data []byte, v any) error {
 	msg, ok := v.(*RawMessage)
 	if !ok {
@@ -63,6 +65,7 @@ func (c rawProtoCodec) Unmarshal(data []byte, v any) error {
 	return nil
 }
 
+// Name 返回 proto，确保 gRPC content-type 仍然保持兼容。
 func (c rawProtoCodec) Name() string {
 	// 这里显式返回 proto。
 	//

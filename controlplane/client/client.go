@@ -16,6 +16,7 @@ import (
 	"google.golang.org/grpc/credentials/insecure"
 )
 
+// State 保存 controlplane 最近一次下发到 dataplane 的可生效状态。
 type State struct {
 	mu           sync.RWMutex
 	snapshots    map[string]*controlv1.ServiceSnapshot
@@ -24,6 +25,7 @@ type State struct {
 	lastPolicy   *controlv1.RoutePolicy
 }
 
+// SetSnapshot 写入并覆盖指定服务的最新快照。
 func (s *State) SetSnapshot(snapshot *controlv1.ServiceSnapshot) {
 	if snapshot == nil || snapshot.GetService() == nil {
 		return
@@ -38,6 +40,7 @@ func (s *State) SetSnapshot(snapshot *controlv1.ServiceSnapshot) {
 	s.lastSnapshot = snapshot
 }
 
+// SetRoutePolicy 写入并覆盖指定服务的最新策略。
 func (s *State) SetRoutePolicy(policy *controlv1.RoutePolicy) {
 	if policy == nil || policy.GetService() == nil {
 		return
@@ -52,18 +55,21 @@ func (s *State) SetRoutePolicy(policy *controlv1.RoutePolicy) {
 	s.lastPolicy = policy
 }
 
+// Snapshot 返回最近一次收到的快照，主要给测试和调试使用。
 func (s *State) Snapshot() *controlv1.ServiceSnapshot {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 	return s.lastSnapshot
 }
 
+// RoutePolicy 返回最近一次收到的策略，主要给测试和调试使用。
 func (s *State) RoutePolicy() *controlv1.RoutePolicy {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 	return s.lastPolicy
 }
 
+// ResolveSnapshot 把控制面快照转换为 dataplane 内部统一模型。
 func (s *State) ResolveSnapshot(target model.ServiceRef) (model.ServiceSnapshot, bool) {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
@@ -85,6 +91,7 @@ func (s *State) ResolveSnapshot(target model.ServiceRef) (model.ServiceSnapshot,
 	}, true
 }
 
+// ResolveRoutePolicy 根据目标服务解析控制面下发的策略。
 func (s *State) ResolveRoutePolicy(target model.ServiceRef) (*controlv1.RoutePolicy, bool) {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
@@ -93,11 +100,13 @@ func (s *State) ResolveRoutePolicy(target model.ServiceRef) (*controlv1.RoutePol
 	return policy, policy != nil
 }
 
+// Client 负责维持 dataplane 到 controlplane 的长连接。
 type Client struct {
 	cfg   config.ControlPlaneConfig
 	state *State
 }
 
+// New 创建 controlplane client。
 func New(cfg config.ControlPlaneConfig) *Client {
 	return &Client{
 		cfg:   cfg,
@@ -105,10 +114,12 @@ func New(cfg config.ControlPlaneConfig) *Client {
 	}
 }
 
+// State 暴露当前已缓存的控制面状态。
 func (c *Client) State() *State {
 	return c.state
 }
 
+// Run 在后台持续维护连接，并在断开后按固定间隔重连。
 func (c *Client) Run(ctx context.Context, identity *controlv1.DataplaneIdentity) error {
 	if identity == nil {
 		return nil
@@ -136,6 +147,7 @@ func (c *Client) Run(ctx context.Context, identity *controlv1.DataplaneIdentity)
 	}
 }
 
+// connectOnce 建立一轮新的控制面连接并维持心跳。
 func (c *Client) connectOnce(ctx context.Context, identity *controlv1.DataplaneIdentity) error {
 	dialCtx, cancel := context.WithTimeout(ctx, connectTimeout(c.cfg))
 	defer cancel()
@@ -200,6 +212,7 @@ func (c *Client) connectOnce(ctx context.Context, identity *controlv1.DataplaneI
 	}
 }
 
+// recvLoop 持续消费控制面下发消息并写入本地 State。
 func (c *Client) recvLoop(stream grpc.BidiStreamingClient[controlv1.ConnectRequest, controlv1.ConnectResponse]) error {
 	for {
 		resp, err := stream.Recv()
@@ -216,6 +229,7 @@ func (c *Client) recvLoop(stream grpc.BidiStreamingClient[controlv1.ConnectReque
 	}
 }
 
+// heartbeatInterval 统一收敛心跳周期默认值。
 func heartbeatInterval(cfg config.ControlPlaneConfig) time.Duration {
 	if cfg.HeartbeatIntervalMS == 0 {
 		return 3 * time.Second
@@ -223,6 +237,7 @@ func heartbeatInterval(cfg config.ControlPlaneConfig) time.Duration {
 	return time.Duration(cfg.HeartbeatIntervalMS) * time.Millisecond
 }
 
+// connectTimeout 统一收敛控制面连接超时默认值。
 func connectTimeout(cfg config.ControlPlaneConfig) time.Duration {
 	if cfg.ConnectTimeoutMS == 0 {
 		return time.Second
@@ -230,6 +245,7 @@ func connectTimeout(cfg config.ControlPlaneConfig) time.Duration {
 	return time.Duration(cfg.ConnectTimeoutMS) * time.Millisecond
 }
 
+// lookupSnapshot 先按精确 serviceKey 查，再回退到不带 env 的键。
 func (s *State) lookupSnapshot(target model.ServiceRef) *controlv1.ServiceSnapshot {
 	if s.snapshots == nil {
 		return nil
@@ -240,6 +256,7 @@ func (s *State) lookupSnapshot(target model.ServiceRef) *controlv1.ServiceSnapsh
 	return s.snapshots[serviceKey(target.Namespace, "", target.Service)]
 }
 
+// lookupPolicy 先按精确 serviceKey 查，再回退到不带 env 的键。
 func (s *State) lookupPolicy(target model.ServiceRef) *controlv1.RoutePolicy {
 	if s.routePolicy == nil {
 		return nil
@@ -250,6 +267,7 @@ func (s *State) lookupPolicy(target model.ServiceRef) *controlv1.RoutePolicy {
 	return s.routePolicy[serviceKey(target.Namespace, "", target.Service)]
 }
 
+// serviceKey 统一控制面状态映射使用的字符串键格式。
 func serviceKey(namespace, env, service string) string {
 	namespace = strings.TrimSpace(namespace)
 	env = strings.TrimSpace(env)
@@ -260,6 +278,7 @@ func serviceKey(namespace, env, service string) string {
 	return namespace + "/" + env + "/" + service
 }
 
+// toModelEndpoints 把 proto endpoint 转为内部 model.Endpoint。
 func toModelEndpoints(endpoints []*controlv1.Endpoint) []model.Endpoint {
 	result := make([]model.Endpoint, 0, len(endpoints))
 	for _, endpoint := range endpoints {

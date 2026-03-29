@@ -75,6 +75,7 @@ func (c *Client) Check(ctx context.Context, req *invokev1.UnaryInvokeRequest) (*
 	return c.client.Check(callCtx, buildCheckRequest(req, c.includeHeaders))
 }
 
+// buildCheckRequest 把内部 Invoke 请求映射为 Envoy ext_authz 请求。
 func buildCheckRequest(req *invokev1.UnaryInvokeRequest, includeHeaders map[string]struct{}) *authv3.CheckRequest {
 	headers := map[string]string{
 		":authority":                      req.GetTarget().GetService(),
@@ -131,6 +132,7 @@ func buildCheckRequest(req *invokev1.UnaryInvokeRequest, includeHeaders map[stri
 	}
 }
 
+// buildAddress 生成 ext_authz 需要的目标地址结构。
 func buildAddress(host string, port uint32) *corev3.Address {
 	return &corev3.Address{
 		Address: &corev3.Address_SocketAddress{

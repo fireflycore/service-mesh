@@ -2,6 +2,7 @@ package config
 
 import "testing"
 
+// TestDefaultConfigIsValid 验证默认配置经过规范化后可以直接运行。
 func TestDefaultConfigIsValid(t *testing.T) {
 	cfg := Default()
 	Normalize(&cfg)
@@ -11,6 +12,7 @@ func TestDefaultConfigIsValid(t *testing.T) {
 	}
 }
 
+// TestInvalidModeFails 验证非法 mode 会被拦截。
 func TestInvalidModeFails(t *testing.T) {
 	cfg := Default()
 	cfg.Mode = "bad"
@@ -20,6 +22,7 @@ func TestInvalidModeFails(t *testing.T) {
 	}
 }
 
+// TestInvokePerTryTimeoutCannotExceedTimeout 验证调用预算约束有效。
 func TestInvokePerTryTimeoutCannotExceedTimeout(t *testing.T) {
 	cfg := Default()
 	cfg.Invoke.TimeoutMS = 100
@@ -30,6 +33,7 @@ func TestInvokePerTryTimeoutCannotExceedTimeout(t *testing.T) {
 	}
 }
 
+// TestSidecarRequiresServiceName 验证 sidecar 必须显式绑定本地服务名。
 func TestSidecarRequiresServiceName(t *testing.T) {
 	cfg := Default()
 	cfg.Mode = "sidecar"

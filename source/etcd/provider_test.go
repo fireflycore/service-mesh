@@ -16,10 +16,12 @@ type fakeKVGetter struct {
 	err      error
 }
 
+// Get 用固定返回值模拟 etcd KV 查询结果。
 func (f fakeKVGetter) Get(ctx context.Context, key string, opts ...clientv3.OpOption) (*clientv3.GetResponse, error) {
 	return f.response, f.err
 }
 
+// TestProviderResolve 验证 etcd provider 能正确解析注册 JSON。
 func TestProviderResolve(t *testing.T) {
 	provider := &Provider{
 		Config: config.EtcdSourceConfig{

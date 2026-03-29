@@ -8,18 +8,21 @@ import (
 	"google.golang.org/grpc"
 )
 
+// Server 是控制面的最小 gRPC 服务实现。
 type Server struct {
 	controlv1.UnimplementedMeshControlPlaneServiceServer
 
 	store *snapshot.Store
 }
 
+// New 用给定的 snapshot store 创建控制面服务。
 func New(store *snapshot.Store) *Server {
 	return &Server{
 		store: store,
 	}
 }
 
+// Connect 维护一条双向流，按消息类型分发到 register / heartbeat 处理器。
 func (s *Server) Connect(stream grpc.BidiStreamingServer[controlv1.ConnectRequest, controlv1.ConnectResponse]) error {
 	for {
 		req, err := stream.Recv()
@@ -43,6 +46,7 @@ func (s *Server) Connect(stream grpc.BidiStreamingServer[controlv1.ConnectReques
 	}
 }
 
+// handleRegister 在 dataplane 首次注册时回放当前快照与策略。
 func (s *Server) handleRegister(stream grpc.BidiStreamingServer[controlv1.ConnectRequest, controlv1.ConnectResponse], register *controlv1.DataplaneRegister) error {
 	if register == nil || register.GetIdentity() == nil {
 		return nil
@@ -77,6 +81,7 @@ func (s *Server) handleRegister(stream grpc.BidiStreamingServer[controlv1.Connec
 	return nil
 }
 
+// handleHeartbeat 为后续更复杂的控制面状态机保留入口。
 func (s *Server) handleHeartbeat(stream grpc.BidiStreamingServer[controlv1.ConnectRequest, controlv1.ConnectResponse], heartbeat *controlv1.DataplaneHeartbeat) error {
 	if heartbeat == nil || heartbeat.GetDataplaneId() == "" {
 		return nil

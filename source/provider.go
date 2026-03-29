@@ -10,6 +10,7 @@ import (
 	"github.com/fireflycore/service-mesh/source/etcd"
 )
 
+// Provider 抽象“如何从目录系统解析服务快照”。
 type Provider interface {
 	Name() string
 	Resolve(ctx context.Context, target model.ServiceRef) (model.ServiceSnapshot, error)

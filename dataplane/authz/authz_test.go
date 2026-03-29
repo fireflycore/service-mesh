@@ -19,10 +19,12 @@ type fakeAuthorizationServer struct {
 	err      error
 }
 
+// Check 用固定结果模拟外部 ext_authz 服务。
 func (s *fakeAuthorizationServer) Check(context.Context, *authv3.CheckRequest) (*authv3.CheckResponse, error) {
 	return s.response, s.err
 }
 
+// TestExtAuthzAllow 验证 ext_authz 返回 OK 时会放行。
 func TestExtAuthzAllow(t *testing.T) {
 	address, stop := startAuthzServer(t, &fakeAuthorizationServer{
 		response: &authv3.CheckResponse{
@@ -54,6 +56,7 @@ func TestExtAuthzAllow(t *testing.T) {
 	}
 }
 
+// TestExtAuthzDeny 验证 ext_authz deny 会被映射为鉴权失败。
 func TestExtAuthzDeny(t *testing.T) {
 	address, stop := startAuthzServer(t, &fakeAuthorizationServer{
 		response: &authv3.CheckResponse{
@@ -88,6 +91,7 @@ func TestExtAuthzDeny(t *testing.T) {
 	}
 }
 
+// TestExtAuthzFailOpen 验证 fail-open 策略在连接失败时会放行。
 func TestExtAuthzFailOpen(t *testing.T) {
 	authorizer, err := NewExtAuthz(config.AuthzConfig{
 		Target:    "127.0.0.1:1",
@@ -112,6 +116,7 @@ func TestExtAuthzFailOpen(t *testing.T) {
 	}
 }
 
+// startAuthzServer 启动一个测试用 ext_authz gRPC 服务。
 func startAuthzServer(t *testing.T, server authv3.AuthorizationServer) (string, func()) {
 	t.Helper()
 

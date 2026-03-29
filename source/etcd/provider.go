@@ -124,6 +124,7 @@ func (p *Provider) Resolve(ctx context.Context, target model.ServiceRef) (model.
 	return snapshot, nil
 }
 
+// decodeEndpoint 解析单条 etcd KV 并抽取可路由实例。
 func decodeEndpoint(kv *mvccpb.KeyValue) (model.Endpoint, bool) {
 	if kv == nil || len(kv.Value) == 0 {
 		return model.Endpoint{}, false
@@ -154,6 +155,7 @@ func decodeEndpoint(kv *mvccpb.KeyValue) (model.Endpoint, bool) {
 	}, true
 }
 
+// splitAddress 把 host:port 格式拆成内部 endpoint 字段。
 func splitAddress(raw string) (string, uint16, error) {
 	host, portRaw, err := net.SplitHostPort(raw)
 	if err != nil {
@@ -166,6 +168,7 @@ func splitAddress(raw string) (string, uint16, error) {
 	return host, uint16(port), nil
 }
 
+// durationFromMS 统一把毫秒值转换成 time.Duration，并提供默认值。
 func durationFromMS(value uint64) time.Duration {
 	if value == 0 {
 		return time.Second

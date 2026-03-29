@@ -8,6 +8,7 @@ import (
 	"github.com/fireflycore/service-mesh/source"
 )
 
+// Resolver 把“逻辑目标服务”解析为“本次实际要访问的 endpoint”。
 type Resolver struct {
 	source   source.Provider
 	balancer balancer.Picker

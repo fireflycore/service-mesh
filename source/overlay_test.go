@@ -11,10 +11,12 @@ type fakeProvider struct {
 	snapshot model.ServiceSnapshot
 }
 
+// Name 返回测试用 provider 名称。
 func (p fakeProvider) Name() string {
 	return "fake"
 }
 
+// Resolve 直接返回预置快照。
 func (p fakeProvider) Resolve(context.Context, model.ServiceRef) (model.ServiceSnapshot, error) {
 	return p.snapshot, nil
 }
@@ -24,10 +26,12 @@ type fakeSnapshotResolver struct {
 	ok       bool
 }
 
+// ResolveSnapshot 直接返回预置控制面快照。
 func (r fakeSnapshotResolver) ResolveSnapshot(target model.ServiceRef) (model.ServiceSnapshot, bool) {
 	return r.snapshot, r.ok
 }
 
+// TestOverlayUsesControlPlaneSnapshotFirst 验证 overlay 的优先级是 controlplane first。
 func TestOverlayUsesControlPlaneSnapshotFirst(t *testing.T) {
 	overlay := NewOverlay(
 		fakeProvider{

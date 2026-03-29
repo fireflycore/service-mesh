@@ -12,6 +12,10 @@ var (
 	date    = "unknown"
 )
 
+// newVersionCmd 创建 version 子命令。
+//
+// 这三个变量通常在构建阶段由 ldflags 注入，
+// 本地开发时会保留默认占位值。
 func newVersionCmd() *cobra.Command {
 	return &cobra.Command{
 		Use:   "version",

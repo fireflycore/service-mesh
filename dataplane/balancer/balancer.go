@@ -7,6 +7,7 @@ import (
 	"github.com/fireflycore/service-mesh/pkg/model"
 )
 
+// Picker 表示一个实例选择策略。
 type Picker interface {
 	Pick(snapshot model.ServiceSnapshot) (model.Endpoint, error)
 }
@@ -19,6 +20,7 @@ type RoundRobin struct {
 	current map[string]uint64
 }
 
+// NewRoundRobin 创建轮询 balancer。
 func NewRoundRobin() *RoundRobin {
 	return &RoundRobin{
 		current: make(map[string]uint64),

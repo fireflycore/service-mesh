@@ -7,6 +7,10 @@ import (
 	"github.com/spf13/cobra"
 )
 
+// newValidateCmd 创建 validate 子命令。
+//
+// 它不启动运行时，
+// 只用于提前发现配置错误和模式/来源组合错误。
 func newValidateCmd() *cobra.Command {
 	var opts config.LoadOptions
 

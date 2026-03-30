@@ -83,7 +83,8 @@ service
 - 第十五版当前范围已完成首轮：
   - control plane 具备最小 source cache loader
   - source 快照进入 control plane store 后可生成递增 revision
-  - 为后续 watch / 增量更新保留 `pull + cache` 基础链路
+  - `pull + cache` 刷新结果可主动推送给已连接 dataplane
+  - 为后续 watch / 增量更新保留基础广播链路
 
 ## 设计原则
 

@@ -11,6 +11,7 @@ import (
 	"github.com/fireflycore/service-mesh/controlplane/snapshot"
 	"github.com/fireflycore/service-mesh/pkg/config"
 	"github.com/fireflycore/service-mesh/pkg/model"
+	"github.com/fireflycore/service-mesh/source/memory"
 	"google.golang.org/grpc"
 )
 
@@ -142,5 +143,97 @@ func TestClientReceivesSnapshotAndPolicy(t *testing.T) {
 	}
 	if got, want := policy.GetTimeoutMs(), uint64(1500); got != want {
 		t.Fatalf("unexpected route timeout: got=%d want=%d", got, want)
+	}
+}
+
+func TestClientReceivesPushedSnapshotAfterRefresh(t *testing.T) {
+	store := snapshot.NewStore()
+	loader := snapshot.NewLoader(
+		store,
+		memory.New(map[string]model.ServiceSnapshot{
+			"default/dev/orders": {
+				Service: model.ServiceRef{
+					Service:   "orders",
+					Namespace: "default",
+					Env:       "dev",
+				},
+				Endpoints: []model.Endpoint{
+					{Address: "10.0.0.30", Port: 19090, Weight: 1},
+				},
+			},
+		}),
+	)
+	srv := server.NewWithLoader(store, loader)
+	srv.TrackTarget(model.ServiceRef{
+		Service:   "orders",
+		Namespace: "default",
+		Env:       "dev",
+	})
+
+	grpcServer := grpc.NewServer()
+	controlv1.RegisterMeshControlPlaneServiceServer(grpcServer, srv)
+
+	listener, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatalf("listen failed: %v", err)
+	}
+	defer listener.Close()
+
+	go func() {
+		_ = grpcServer.Serve(listener)
+	}()
+	defer grpcServer.Stop()
+
+	client := New(config.ControlPlaneConfig{
+		Target:              listener.Addr().String(),
+		HeartbeatIntervalMS: 100,
+		ConnectTimeoutMS:    200,
+	})
+
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	defer cancel()
+
+	errCh := make(chan error, 1)
+	go func() {
+		errCh <- client.Run(ctx, &controlv1.DataplaneIdentity{
+			DataplaneId: "dp-1",
+			Mode:        "agent",
+			NodeId:      "node-1",
+			Namespace:   "default",
+			Service:     "service-mesh-agent",
+			Env:         "dev",
+		})
+	}()
+
+	time.Sleep(150 * time.Millisecond)
+
+	if err := srv.RefreshTracked(context.Background()); err != nil {
+		t.Fatalf("refresh tracked failed: %v", err)
+	}
+
+	deadline := time.After(time.Second)
+	for {
+		snapshotValue, ok := client.State().ResolveSnapshot(model.ServiceRef{
+			Service:   "orders",
+			Namespace: "default",
+			Env:       "dev",
+		})
+		if ok {
+			if got, want := snapshotValue.Endpoints[0].Address, "10.0.0.30"; got != want {
+				t.Fatalf("unexpected pushed snapshot address: got=%s want=%s", got, want)
+			}
+			cancel()
+			break
+		}
+
+		select {
+		case <-deadline:
+			t.Fatal("expected pushed snapshot to reach client state")
+		case <-time.After(20 * time.Millisecond):
+		}
+	}
+
+	if err := <-errCh; err != nil && err != context.Canceled {
+		t.Fatalf("unexpected run error: %v", err)
 	}
 }

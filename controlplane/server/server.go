@@ -1,10 +1,15 @@
 package server
 
 import (
+	"context"
 	"io"
+	"strings"
+	"sync"
+	"time"
 
 	controlv1 "github.com/fireflycore/service-mesh/.gen/proto/acme/control/v1"
 	"github.com/fireflycore/service-mesh/controlplane/snapshot"
+	"github.com/fireflycore/service-mesh/pkg/model"
 	"google.golang.org/grpc"
 )
 
@@ -12,38 +17,91 @@ import (
 type Server struct {
 	controlv1.UnimplementedMeshControlPlaneServiceServer
 
-	store *snapshot.Store
+	store  *snapshot.Store
+	loader *snapshot.Loader
+
+	mu             sync.RWMutex
+	subscribers    map[uint64]chan *controlv1.ConnectResponse
+	trackedTargets map[string]model.ServiceRef
+	nextSubscriber uint64
 }
 
 // New 用给定的 snapshot store 创建控制面服务。
 func New(store *snapshot.Store) *Server {
+	return NewWithLoader(store, nil)
+}
+
+// NewWithLoader 用给定的 snapshot store 和 loader 创建控制面服务。
+func NewWithLoader(store *snapshot.Store, loader *snapshot.Loader) *Server {
 	return &Server{
-		store: store,
+		store:          store,
+		loader:         loader,
+		subscribers:    make(map[uint64]chan *controlv1.ConnectResponse),
+		trackedTargets: make(map[string]model.ServiceRef),
 	}
 }
 
 // Connect 维护一条双向流，按消息类型分发到 register / heartbeat 处理器。
 func (s *Server) Connect(stream grpc.BidiStreamingServer[controlv1.ConnectRequest, controlv1.ConnectResponse]) error {
+	type recvResult struct {
+		req *controlv1.ConnectRequest
+		err error
+	}
+
+	recvCh := make(chan recvResult, 1)
+	go func() {
+		for {
+			req, err := stream.Recv()
+			recvCh <- recvResult{req: req, err: err}
+			if err != nil {
+				close(recvCh)
+				return
+			}
+		}
+	}()
+
+	var subscriberID uint64
+	var pushCh <-chan *controlv1.ConnectResponse
+	removeSubscriber := func() {
+		if subscriberID == 0 {
+			return
+		}
+		s.removeSubscriber(subscriberID)
+		subscriberID = 0
+	}
+	defer removeSubscriber()
+
 	for {
-		// 服务端持续从同一条流上读取 register/heartbeat 等消息。
-		req, err := stream.Recv()
-		if err != nil {
-			if err == io.EOF {
-				// 客户端正常结束流时，服务端也直接结束本次连接生命周期。
+		select {
+		case result, ok := <-recvCh:
+			if !ok {
 				return nil
 			}
-			return err
-		}
-
-		switch body := req.GetBody().(type) {
-		case *controlv1.ConnectRequest_Register:
-			// register 触发一次“回放当前状态”。
-			if err := s.handleRegister(stream, body.Register); err != nil {
-				return err
+			if result.err != nil {
+				if result.err == io.EOF {
+					return nil
+				}
+				return result.err
 			}
-		case *controlv1.ConnectRequest_Heartbeat:
-			// heartbeat 当前只用于保活，后续可以在这里扩展 ACK 或状态回写。
-			if err := s.handleHeartbeat(stream, body.Heartbeat); err != nil {
+
+			switch body := result.req.GetBody().(type) {
+			case *controlv1.ConnectRequest_Register:
+				if pushCh == nil {
+					subscriberID, pushCh = s.addSubscriber()
+				}
+				if err := s.handleRegister(stream, body.Register); err != nil {
+					return err
+				}
+			case *controlv1.ConnectRequest_Heartbeat:
+				if err := s.handleHeartbeat(stream, body.Heartbeat); err != nil {
+					return err
+				}
+			}
+		case resp := <-pushCh:
+			if resp == nil {
+				continue
+			}
+			if err := stream.Send(resp); err != nil {
 				return err
 			}
 		}
@@ -90,4 +148,108 @@ func (s *Server) handleHeartbeat(stream grpc.BidiStreamingServer[controlv1.Conne
 	}
 
 	return nil
+}
+
+// TrackTarget 把目标服务加入控制面后续刷新的已知集合。
+func (s *Server) TrackTarget(target model.ServiceRef) {
+	if strings.TrimSpace(target.Service) == "" {
+		return
+	}
+
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.trackedTargets[targetKey(target)] = target
+}
+
+// RefreshTracked 刷新当前已知目标集合，并把变化快照推给已连接 dataplane。
+func (s *Server) RefreshTracked(ctx context.Context) error {
+	if s.loader == nil {
+		return nil
+	}
+
+	targets := s.trackedTargetList()
+	if len(targets) == 0 {
+		return nil
+	}
+
+	changed, err := s.loader.RefreshMany(ctx, targets)
+	if err != nil {
+		return err
+	}
+	for _, snapshot := range changed {
+		s.broadcast(&controlv1.ConnectResponse{
+			Body: &controlv1.ConnectResponse_ServiceSnapshot{
+				ServiceSnapshot: snapshot,
+			},
+		})
+	}
+	return nil
+}
+
+// StartBackgroundRefresh 周期性刷新已知目标集合。
+func (s *Server) StartBackgroundRefresh(ctx context.Context, interval time.Duration) {
+	if interval <= 0 {
+		interval = time.Second
+	}
+
+	ticker := time.NewTicker(interval)
+	go func() {
+		defer ticker.Stop()
+		for {
+			select {
+			case <-ctx.Done():
+				return
+			case <-ticker.C:
+				_ = s.RefreshTracked(ctx)
+			}
+		}
+	}()
+}
+
+func (s *Server) addSubscriber() (uint64, <-chan *controlv1.ConnectResponse) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	s.nextSubscriber++
+	id := s.nextSubscriber
+	ch := make(chan *controlv1.ConnectResponse, 16)
+	s.subscribers[id] = ch
+	return id, ch
+}
+
+func (s *Server) removeSubscriber(id uint64) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	if ch, ok := s.subscribers[id]; ok {
+		delete(s.subscribers, id)
+		close(ch)
+	}
+}
+
+func (s *Server) broadcast(resp *controlv1.ConnectResponse) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+
+	for _, subscriber := range s.subscribers {
+		select {
+		case subscriber <- resp:
+		default:
+		}
+	}
+}
+
+func (s *Server) trackedTargetList() []model.ServiceRef {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+
+	targets := make([]model.ServiceRef, 0, len(s.trackedTargets))
+	for _, target := range s.trackedTargets {
+		targets = append(targets, target)
+	}
+	return targets
+}
+
+func targetKey(target model.ServiceRef) string {
+	return target.Namespace + "/" + target.Env + "/" + target.Service
 }

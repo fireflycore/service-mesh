@@ -150,11 +150,11 @@ func newProvider(cfg *config.Config, controlplaneClient *controlclient.Client) (
 		if err != nil {
 			return nil, err
 		}
-		return source.NewOverlayWithFallback(provider, controlplaneClient.State(), true), nil
+		return source.NewOverlayWithFallback(provider, controlplaneClient, true), nil
 	}
 
 	// 第十四版默认让 controlplane 成为主路径，source 直连不再是常规调用路径。
-	return source.NewOverlayWithFallback(nil, controlplaneClient.State(), false), nil
+	return source.NewOverlayWithFallback(nil, controlplaneClient, false), nil
 }
 
 // Run 负责真正启动本地 gRPC dataplane。

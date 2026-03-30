@@ -112,6 +112,10 @@ type Client struct {
 	cfg config.ControlPlaneConfig
 	// state 暴露给 dataplane 其他组件读取控制面下发结果。
 	state *State
+
+	mu             sync.RWMutex
+	desiredTargets map[string]model.ServiceRef
+	subscribeCh    chan struct{}
 }
 
 // New 创建 controlplane client。
@@ -119,13 +123,34 @@ func New(cfg config.ControlPlaneConfig) *Client {
 	return &Client{
 		cfg: cfg,
 		// State 默认从空仓开始，等 register 成功后逐步填充。
-		state: &State{},
+		state:          &State{},
+		desiredTargets: make(map[string]model.ServiceRef),
+		subscribeCh:    make(chan struct{}, 1),
 	}
 }
 
 // State 暴露当前已缓存的控制面状态。
 func (c *Client) State() *State {
 	return c.state
+}
+
+func (c *Client) ResolveSnapshot(target model.ServiceRef) (model.ServiceSnapshot, bool) {
+	return c.state.ResolveSnapshot(target)
+}
+
+func (c *Client) TrackTarget(target model.ServiceRef) {
+	if strings.TrimSpace(target.Service) == "" {
+		return
+	}
+
+	c.mu.Lock()
+	c.desiredTargets[serviceKey(target.Namespace, target.Env, target.Service)] = target
+	c.mu.Unlock()
+
+	select {
+	case c.subscribeCh <- struct{}{}:
+	default:
+	}
 }
 
 // Run 在后台持续维护连接，并在断开后按固定间隔重连。
@@ -198,6 +223,10 @@ func (c *Client) connectOnce(ctx context.Context, identity *controlv1.DataplaneI
 		return err
 	}
 
+	if err := c.sendSubscriptions(stream, c.subscriptionSnapshot()); err != nil {
+		return err
+	}
+
 	// 接收循环单独放 goroutine，主循环才能同时处理心跳和 ctx 取消。
 	recvErrCh := make(chan error, 1)
 	go func() {
@@ -230,12 +259,57 @@ func (c *Client) connectOnce(ctx context.Context, identity *controlv1.DataplaneI
 				// 心跳发送失败通常意味着流已经失效，交给外层重连。
 				return err
 			}
+		case <-c.subscribeCh:
+			if err := c.sendSubscriptions(stream, c.subscriptionSnapshot()); err != nil {
+				return err
+			}
 		case <-ctx.Done():
 			// CloseSend 用于提示服务端本端不再发送更多消息。
 			_ = stream.CloseSend()
 			return ctx.Err()
 		}
 	}
+}
+
+func (c *Client) sendSubscriptions(stream grpc.BidiStreamingClient[controlv1.ConnectRequest, controlv1.ConnectResponse], targets []model.ServiceRef) error {
+	if len(targets) == 0 {
+		return nil
+	}
+
+	services := make([]*controlv1.ServiceRef, 0, len(targets))
+	for _, target := range targets {
+		if strings.TrimSpace(target.Service) == "" {
+			continue
+		}
+		services = append(services, &controlv1.ServiceRef{
+			Service:   target.Service,
+			Namespace: target.Namespace,
+			Env:       target.Env,
+			Port:      target.Port,
+		})
+	}
+	if len(services) == 0 {
+		return nil
+	}
+
+	return stream.Send(&controlv1.ConnectRequest{
+		Body: &controlv1.ConnectRequest_Subscribe{
+			Subscribe: &controlv1.TargetSubscription{
+				Services: services,
+			},
+		},
+	})
+}
+
+func (c *Client) subscriptionSnapshot() []model.ServiceRef {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+
+	targets := make([]model.ServiceRef, 0, len(c.desiredTargets))
+	for _, target := range c.desiredTargets {
+		targets = append(targets, target)
+	}
+	return targets
 }
 
 // recvLoop 持续消费控制面下发消息并写入本地 State。

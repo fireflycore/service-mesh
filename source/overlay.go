@@ -12,14 +12,18 @@ type SnapshotResolver interface {
 	ResolveSnapshot(target model.ServiceRef) (model.ServiceSnapshot, bool)
 }
 
+type TargetTracker interface {
+	TrackTarget(target model.ServiceRef)
+}
+
 // ErrControlPlaneSnapshotUnavailable 表示当前目标服务还没有可用控制面快照。
 var ErrControlPlaneSnapshotUnavailable = errors.New("controlplane snapshot unavailable")
 
 // Overlay 用于实现“controlplane 优先，本地目录回退”。
 type Overlay struct {
 	// primary 是原始目录来源，priority 是更高优先级的覆盖来源。
-	primary             Provider
-	priority            SnapshotResolver
+	primary              Provider
+	priority             SnapshotResolver
 	allowPrimaryFallback bool
 }
 
@@ -54,6 +58,9 @@ func (o *Overlay) Resolve(ctx context.Context, target model.ServiceRef) (model.S
 		// 只要控制面快照命中，就不再访问底层目录服务。
 		if snapshot, ok := o.priority.ResolveSnapshot(target); ok {
 			return snapshot, nil
+		}
+		if tracker, ok := o.priority.(TargetTracker); ok {
+			tracker.TrackTarget(target)
 		}
 	}
 

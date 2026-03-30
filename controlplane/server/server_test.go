@@ -224,3 +224,95 @@ func TestServerRefreshTrackedBroadcastsChangedSnapshot(t *testing.T) {
 		t.Fatal("expected pushed snapshot after refresh")
 	}
 }
+
+func TestServerBackgroundRefreshPushesTrackedSnapshots(t *testing.T) {
+	store := snapshot.NewStore()
+	loader := snapshot.NewLoader(
+		store,
+		memory.New(map[string]model.ServiceSnapshot{
+			"default/dev/orders": {
+				Service: model.ServiceRef{
+					Service:   "orders",
+					Namespace: "default",
+					Env:       "dev",
+				},
+				Endpoints: []model.Endpoint{
+					{Address: "10.0.0.22", Port: 19090, Weight: 1},
+				},
+			},
+		}),
+	)
+	srv := NewWithLoader(store, loader)
+	srv.TrackTarget(model.ServiceRef{
+		Service:   "orders",
+		Namespace: "default",
+		Env:       "dev",
+	})
+
+	bgCtx, cancelBg := context.WithCancel(context.Background())
+	defer cancelBg()
+	srv.StartBackgroundRefresh(bgCtx, 20*time.Millisecond)
+
+	grpcServer := grpc.NewServer()
+	controlv1.RegisterMeshControlPlaneServiceServer(grpcServer, srv)
+
+	listener, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatalf("listen failed: %v", err)
+	}
+	defer listener.Close()
+
+	go func() {
+		_ = grpcServer.Serve(listener)
+	}()
+	defer grpcServer.Stop()
+
+	conn, err := grpc.DialContext(
+		context.Background(),
+		listener.Addr().String(),
+		grpc.WithTransportCredentials(insecure.NewCredentials()),
+	)
+	if err != nil {
+		t.Fatalf("dial failed: %v", err)
+	}
+	defer conn.Close()
+
+	stream, err := controlv1.NewMeshControlPlaneServiceClient(conn).Connect(context.Background())
+	if err != nil {
+		t.Fatalf("connect failed: %v", err)
+	}
+
+	if err := stream.Send(&controlv1.ConnectRequest{
+		Body: &controlv1.ConnectRequest_Register{
+			Register: &controlv1.DataplaneRegister{
+				Identity: &controlv1.DataplaneIdentity{
+					DataplaneId: "dp-2",
+					Mode:        "agent",
+					NodeId:      "node-2",
+					Namespace:   "default",
+					Service:     "service-mesh-agent",
+					Env:         "dev",
+				},
+			},
+		},
+	}); err != nil {
+		t.Fatalf("send register failed: %v", err)
+	}
+
+	deadline := time.After(time.Second)
+	for {
+		resp, err := stream.Recv()
+		if err != nil {
+			t.Fatalf("recv failed: %v", err)
+		}
+		if resp.GetServiceSnapshot() != nil && resp.GetServiceSnapshot().GetService().GetService() == "orders" {
+			return
+		}
+
+		select {
+		case <-deadline:
+			t.Fatal("expected background refresh to push tracked snapshot")
+		default:
+		}
+	}
+}

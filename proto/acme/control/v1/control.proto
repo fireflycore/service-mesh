@@ -21,6 +21,10 @@ message DataplaneHeartbeat {
   int64 timestamp_unix_ms = 2;
 }
 
+message TargetSubscription {
+  repeated ServiceRef services = 1;
+}
+
 message Endpoint {
   string address = 1;
   uint32 port = 2;
@@ -55,6 +59,7 @@ message ConnectRequest {
   oneof body {
     DataplaneRegister register = 1;
     DataplaneHeartbeat heartbeat = 2;
+    TargetSubscription subscribe = 3;
   }
 }
 

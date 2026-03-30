@@ -237,3 +237,91 @@ func TestClientReceivesPushedSnapshotAfterRefresh(t *testing.T) {
 		t.Fatalf("unexpected run error: %v", err)
 	}
 }
+
+func TestClientTrackTargetTriggersSubscribeAndSnapshotSync(t *testing.T) {
+	store := snapshot.NewStore()
+	loader := snapshot.NewLoader(
+		store,
+		memory.New(map[string]model.ServiceSnapshot{
+			"default/dev/orders": {
+				Service: model.ServiceRef{
+					Service:   "orders",
+					Namespace: "default",
+					Env:       "dev",
+				},
+				Endpoints: []model.Endpoint{
+					{Address: "10.0.0.40", Port: 19090, Weight: 1},
+				},
+			},
+		}),
+	)
+	srv := server.NewWithLoader(store, loader)
+
+	grpcServer := grpc.NewServer()
+	controlv1.RegisterMeshControlPlaneServiceServer(grpcServer, srv)
+
+	listener, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatalf("listen failed: %v", err)
+	}
+	defer listener.Close()
+
+	go func() {
+		_ = grpcServer.Serve(listener)
+	}()
+	defer grpcServer.Stop()
+
+	client := New(config.ControlPlaneConfig{
+		Target:              listener.Addr().String(),
+		HeartbeatIntervalMS: 100,
+		ConnectTimeoutMS:    200,
+	})
+
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	defer cancel()
+
+	errCh := make(chan error, 1)
+	go func() {
+		errCh <- client.Run(ctx, &controlv1.DataplaneIdentity{
+			DataplaneId: "dp-1",
+			Mode:        "agent",
+			NodeId:      "node-1",
+			Namespace:   "default",
+			Service:     "service-mesh-agent",
+			Env:         "dev",
+		})
+	}()
+
+	time.Sleep(150 * time.Millisecond)
+	client.TrackTarget(model.ServiceRef{
+		Service:   "orders",
+		Namespace: "default",
+		Env:       "dev",
+	})
+
+	deadline := time.After(time.Second)
+	for {
+		snapshotValue, ok := client.State().ResolveSnapshot(model.ServiceRef{
+			Service:   "orders",
+			Namespace: "default",
+			Env:       "dev",
+		})
+		if ok {
+			if got, want := snapshotValue.Endpoints[0].Address, "10.0.0.40"; got != want {
+				t.Fatalf("unexpected subscribed snapshot address: got=%s want=%s", got, want)
+			}
+			cancel()
+			break
+		}
+
+		select {
+		case <-deadline:
+			t.Fatal("expected subscribed snapshot to reach client state")
+		case <-time.After(20 * time.Millisecond):
+		}
+	}
+
+	if err := <-errCh; err != nil && err != context.Canceled {
+		t.Fatalf("unexpected run error: %v", err)
+	}
+}

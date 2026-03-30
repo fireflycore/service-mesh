@@ -96,6 +96,10 @@ func (s *Server) Connect(stream grpc.BidiStreamingServer[controlv1.ConnectReques
 				if err := s.handleHeartbeat(stream, body.Heartbeat); err != nil {
 					return err
 				}
+			case *controlv1.ConnectRequest_Subscribe:
+				if err := s.handleSubscribe(stream, body.Subscribe); err != nil {
+					return err
+				}
 			}
 		case resp := <-pushCh:
 			if resp == nil {
@@ -150,6 +154,78 @@ func (s *Server) handleHeartbeat(stream grpc.BidiStreamingServer[controlv1.Conne
 	return nil
 }
 
+func (s *Server) handleSubscribe(stream grpc.BidiStreamingServer[controlv1.ConnectRequest, controlv1.ConnectResponse], subscribe *controlv1.TargetSubscription) error {
+	if subscribe == nil || len(subscribe.GetServices()) == 0 {
+		return nil
+	}
+
+	targets := make([]model.ServiceRef, 0, len(subscribe.GetServices()))
+	for _, service := range subscribe.GetServices() {
+		if service == nil || strings.TrimSpace(service.GetService()) == "" {
+			continue
+		}
+
+		target := model.ServiceRef{
+			Service:   service.GetService(),
+			Namespace: service.GetNamespace(),
+			Env:       service.GetEnv(),
+			Port:      service.GetPort(),
+		}
+		s.TrackTarget(target)
+		targets = append(targets, target)
+	}
+
+	if len(targets) == 0 {
+		return nil
+	}
+
+	changedKeys := make(map[string]struct{})
+	if s.loader != nil {
+		changed, err := s.loader.RefreshMany(stream.Context(), targets)
+		if err != nil {
+			return err
+		}
+		for _, snapshot := range changed {
+			changedKeys[targetKey(model.ServiceRef{
+				Service:   snapshot.GetService().GetService(),
+				Namespace: snapshot.GetService().GetNamespace(),
+				Env:       snapshot.GetService().GetEnv(),
+			})] = struct{}{}
+			if err := stream.Send(&controlv1.ConnectResponse{
+				Body: &controlv1.ConnectResponse_ServiceSnapshot{
+					ServiceSnapshot: snapshot,
+				},
+			}); err != nil {
+				return err
+			}
+		}
+	}
+
+	for _, target := range targets {
+		if _, ok := changedKeys[targetKey(target)]; ok {
+			continue
+		}
+		snapshot, _ := s.store.Lookup(&controlv1.ServiceRef{
+			Service:   target.Service,
+			Namespace: target.Namespace,
+			Env:       target.Env,
+			Port:      target.Port,
+		})
+		if snapshot == nil {
+			continue
+		}
+		if err := stream.Send(&controlv1.ConnectResponse{
+			Body: &controlv1.ConnectResponse_ServiceSnapshot{
+				ServiceSnapshot: snapshot,
+			},
+		}); err != nil {
+			return err
+		}
+	}
+
+	return nil
+}
+
 // TrackTarget 把目标服务加入控制面后续刷新的已知集合。
 func (s *Server) TrackTarget(target model.ServiceRef) {
 	if strings.TrimSpace(target.Service) == "" {
@@ -195,6 +271,7 @@ func (s *Server) StartBackgroundRefresh(ctx context.Context, interval time.Durat
 	ticker := time.NewTicker(interval)
 	go func() {
 		defer ticker.Stop()
+		_ = s.RefreshTracked(ctx)
 		for {
 			select {
 			case <-ctx.Done():

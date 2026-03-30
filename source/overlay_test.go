@@ -33,6 +33,20 @@ func (r fakeSnapshotResolver) ResolveSnapshot(target model.ServiceRef) (model.Se
 	return r.snapshot, r.ok
 }
 
+type fakeTrackingResolver struct {
+	tracked  []model.ServiceRef
+	snapshot model.ServiceSnapshot
+	ok       bool
+}
+
+func (r *fakeTrackingResolver) ResolveSnapshot(target model.ServiceRef) (model.ServiceSnapshot, bool) {
+	return r.snapshot, r.ok
+}
+
+func (r *fakeTrackingResolver) TrackTarget(target model.ServiceRef) {
+	r.tracked = append(r.tracked, target)
+}
+
 // TestOverlayUsesControlPlaneSnapshotFirst 验证 overlay 的优先级是 controlplane first。
 func TestOverlayUsesControlPlaneSnapshotFirst(t *testing.T) {
 	// 同时准备“底层目录快照”和“控制面覆盖快照”，验证谁优先生效。
@@ -68,7 +82,8 @@ func TestOverlayUsesControlPlaneSnapshotFirst(t *testing.T) {
 }
 
 func TestOverlayReturnsSnapshotUnavailableWithoutFallback(t *testing.T) {
-	overlay := NewOverlayWithFallback(nil, fakeSnapshotResolver{}, false)
+	resolver := &fakeTrackingResolver{}
+	overlay := NewOverlayWithFallback(nil, resolver, false)
 
 	_, err := overlay.Resolve(context.Background(), model.ServiceRef{
 		Service:   "orders",
@@ -80,6 +95,12 @@ func TestOverlayReturnsSnapshotUnavailableWithoutFallback(t *testing.T) {
 	}
 	if err != ErrControlPlaneSnapshotUnavailable {
 		t.Fatalf("unexpected error: %v", err)
+	}
+	if got, want := len(resolver.tracked), 1; got != want {
+		t.Fatalf("unexpected tracked target count: got=%d want=%d", got, want)
+	}
+	if got, want := resolver.tracked[0].Service, "orders"; got != want {
+		t.Fatalf("unexpected tracked service: got=%s want=%s", got, want)
 	}
 }
 

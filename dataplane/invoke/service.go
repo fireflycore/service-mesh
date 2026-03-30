@@ -129,6 +129,9 @@ func (s *Service) UnaryInvoke(ctx context.Context, req *invokev1.UnaryInvokeRequ
 		Env:       req.GetTarget().GetEnv(),
 		Port:      req.GetTarget().GetPort(),
 	}
+	if err := validateSidecarTarget(target, s.options.LocalIdentity); err != nil {
+		return nil, status.Error(codes.InvalidArgument, err.Error())
+	}
 
 	effectiveOptions := s.options
 	if s.options.PolicySource != nil {
@@ -433,6 +436,29 @@ func applyLocalIdentity(req *invokev1.UnaryInvokeRequest, identity *LocalIdentit
 	return nil
 }
 
+// validateSidecarTarget 拒绝把本地 sidecar 当成“调自己”的上游代理使用。
+func validateSidecarTarget(target model.ServiceRef, identity *LocalIdentity) error {
+	if identity == nil {
+		return nil
+	}
+
+	targetService := strings.TrimSpace(target.Service)
+	identityService := strings.TrimSpace(identity.Service)
+	if targetService == "" || identityService == "" {
+		return nil
+	}
+	if targetService != identityService {
+		return nil
+	}
+	if !matchesLocalDimension(target.Namespace, identity.Namespace) {
+		return nil
+	}
+	if !matchesLocalDimension(target.Env, identity.Env) {
+		return nil
+	}
+	return errors.New("target conflicts with sidecar local service identity")
+}
+
 // normalizeLocalIdentity 统一修整 sidecar 本地身份字段。
 func normalizeLocalIdentity(identity LocalIdentity) *LocalIdentity {
 	identity.AppID = strings.TrimSpace(identity.AppID)
@@ -444,6 +470,12 @@ func normalizeLocalIdentity(identity LocalIdentity) *LocalIdentity {
 		identity.AppID = identity.Service
 	}
 	return &identity
+}
+
+func matchesLocalDimension(target, local string) bool {
+	target = strings.TrimSpace(target)
+	local = strings.TrimSpace(local)
+	return target == "" || local == "" || target == local
 }
 
 // ensureMatch 用于拒绝与 sidecar 绑定身份冲突的显式调用上下文。

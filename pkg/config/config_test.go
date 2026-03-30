@@ -47,3 +47,13 @@ func TestSidecarRequiresServiceName(t *testing.T) {
 		t.Fatal("expected sidecar without service_name to fail")
 	}
 }
+
+func TestSidecarRequiresTCPListenNetwork(t *testing.T) {
+	cfg := Default()
+	cfg.Mode = "sidecar"
+	cfg.Runtime.Sidecar.Listen.Network = "unix"
+
+	if err := Validate(cfg); err == nil {
+		t.Fatal("expected sidecar with non-tcp listen network to fail")
+	}
+}

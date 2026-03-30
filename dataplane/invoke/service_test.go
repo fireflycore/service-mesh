@@ -423,3 +423,36 @@ func TestServiceUnaryInvokeRejectsConflictingSidecarIdentity(t *testing.T) {
 		t.Fatalf("unexpected status code: %s", statusErr.Code())
 	}
 }
+
+func TestServiceUnaryInvokeRejectsSidecarSelfTarget(t *testing.T) {
+	svc := NewService(
+		authz.NewAllowAll(),
+		resolver.New(memory.New(nil), balancer.NewRoundRobin()),
+		&fakeTransport{},
+		Options{
+			LocalIdentity: &LocalIdentity{
+				Service:   "config",
+				Namespace: "/microservice/lhdht",
+				Env:       "dev",
+			},
+		},
+	)
+
+	_, err := svc.UnaryInvoke(context.Background(), &invokev1.UnaryInvokeRequest{
+		Target: &invokev1.ServiceRef{
+			Service: "config",
+		},
+		Method: "/acme.config.v1.ConfigService/GetConfig",
+	})
+	if err == nil {
+		t.Fatal("expected sidecar self target to fail")
+	}
+
+	statusErr, ok := status.FromError(err)
+	if !ok {
+		t.Fatalf("expected grpc status error: %v", err)
+	}
+	if statusErr.Code() != codes.InvalidArgument {
+		t.Fatalf("unexpected status code: %s", statusErr.Code())
+	}
+}

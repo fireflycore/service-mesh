@@ -21,6 +21,9 @@ func Validate(cfg Config) error {
 		if cfg.Runtime.Sidecar.Listen.Address == "" {
 			return errors.New("runtime.sidecar.listen.address is required")
 		}
+		if cfg.Runtime.Sidecar.Listen.Network != "tcp" {
+			return errors.New("runtime.sidecar.listen.network must be tcp")
+		}
 		if cfg.Runtime.Sidecar.ServiceName == "" {
 			return errors.New("runtime.sidecar.service_name is required")
 		}

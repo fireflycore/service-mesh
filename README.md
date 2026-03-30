@@ -70,14 +70,10 @@ service
   - sidecar 自动补齐 caller identity
   - sidecar 自动补齐默认 `namespace / env`
   - sidecar 拒绝与本地绑定身份冲突的调用上下文
-- 第十二版当前目标：
-  - sidecar 自动补齐 caller identity
-  - sidecar 自动补齐默认 `namespace / env`
-  - sidecar 拒绝与本地绑定身份冲突的调用上下文
-- 第十版当前目标：
-  - 让 `sidecar` 运行时复用同一套 dataplane 主链
-  - 让 `sidecar` 具备 invoke / controlplane / telemetry 基础能力
-  - 验证 agent / sidecar 只保留运行时身份与监听差异
+- 第十三版当前范围已完成：
+  - sidecar 本地监听当前明确收敛为 `tcp`
+  - sidecar 不再接受指向本地绑定服务身份的目标
+  - sidecar 更明确地只承担“本地服务 -> 上游服务”的代理边界
 
 ## 设计原则
 

@@ -649,6 +649,49 @@ func TestServerUpsertRoutePolicyPushesOnlyToMatchingSubscribers(t *testing.T) {
 	}
 }
 
+func TestMatchesDeliveryUsesUnifiedSubscriptionAndIdentityRules(t *testing.T) {
+	sub := &subscriber{
+		identity: &controlv1.DataplaneIdentity{
+			Namespace: "default",
+			Env:       "dev",
+		},
+		targets: map[string]model.ServiceRef{
+			"default/dev/orders": {
+				Service:   "orders",
+				Namespace: "default",
+				Env:       "dev",
+			},
+		},
+	}
+
+	if !matchesDelivery(sub, deliveryScope{
+		target:              model.ServiceRef{Service: "orders", Namespace: "default", Env: "dev"},
+		service:             &controlv1.ServiceRef{Service: "orders", Namespace: "default", Env: "dev"},
+		requireSubscription: true,
+		requireIdentity:     true,
+	}) {
+		t.Fatal("expected matching delivery to pass")
+	}
+
+	if matchesDelivery(sub, deliveryScope{
+		target:              model.ServiceRef{Service: "payments", Namespace: "default", Env: "dev"},
+		service:             &controlv1.ServiceRef{Service: "payments", Namespace: "default", Env: "dev"},
+		requireSubscription: true,
+		requireIdentity:     true,
+	}) {
+		t.Fatal("expected different subscribed target to fail")
+	}
+
+	if matchesDelivery(sub, deliveryScope{
+		target:              model.ServiceRef{Service: "orders", Namespace: "default", Env: "dev"},
+		service:             &controlv1.ServiceRef{Service: "orders", Namespace: "default", Env: "prod"},
+		requireSubscription: true,
+		requireIdentity:     true,
+	}) {
+		t.Fatal("expected mismatched identity scope to fail")
+	}
+}
+
 func TestServerBackgroundRefreshPushesTrackedSnapshots(t *testing.T) {
 	store := snapshot.NewStore()
 	loader := snapshot.NewLoader(

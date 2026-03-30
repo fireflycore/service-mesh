@@ -96,6 +96,7 @@ service
   - register 阶段的 snapshot / route policy 回放已按 dataplane identity 的 namespace / env 收敛
   - subscribe 阶段的 route policy 同步也已按目标订阅与 dataplane identity 收敛
   - route policy 主动变更已支持按目标订阅与 dataplane identity 定向推送
+  - snapshot / route policy 下发判定已收敛到统一匹配层，减少后续规则漂移
   - consul / etcd / ext_authz / telemetry 初始化等外部交互已补齐默认超时保护，避免缺环境时长时间挂起
 
 ## 设计原则

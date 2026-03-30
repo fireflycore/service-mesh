@@ -33,6 +33,13 @@ type subscriber struct {
 	targets  map[string]model.ServiceRef
 }
 
+type deliveryScope struct {
+	target              model.ServiceRef
+	service             *controlv1.ServiceRef
+	requireSubscription bool
+	requireIdentity     bool
+}
+
 // New 用给定的 snapshot store 创建控制面服务。
 func New(store *snapshot.Store) *Server {
 	return NewWithLoader(store, nil)
@@ -136,11 +143,11 @@ func (s *Server) handleRegister(stream grpc.BidiStreamingServer[controlv1.Connec
 	identity := register.GetIdentity()
 
 	for _, serviceSnapshot := range s.store.AllServiceSnapshots() {
-		if !matchesDataplaneIdentity(serviceSnapshot.GetService(), identity) {
-			continue
-		}
 		// 第十四版开始，register 后优先回放控制面当前已知的全部快照，
 		// 让 dataplane 默认依赖 controlplane 状态，而不是本地直连 source。
+		if !matchesIdentityScope(serviceSnapshot.GetService(), identity) {
+			continue
+		}
 		if err := stream.Send(&controlv1.ConnectResponse{
 			Body: &controlv1.ConnectResponse_ServiceSnapshot{
 				ServiceSnapshot: serviceSnapshot,
@@ -151,7 +158,7 @@ func (s *Server) handleRegister(stream grpc.BidiStreamingServer[controlv1.Connec
 	}
 
 	for _, routePolicy := range s.store.AllRoutePolicies() {
-		if !matchesDataplaneIdentity(routePolicy.GetService(), identity) {
+		if !matchesIdentityScope(routePolicy.GetService(), identity) {
 			continue
 		}
 		// 路由策略和快照一样采用“全量当前状态回放”，保持 dataplane 本地视图完整。
@@ -202,7 +209,7 @@ func (s *Server) handleSubscribe(stream grpc.BidiStreamingServer[controlv1.Conne
 		return nil
 	}
 	s.updateSubscriberTargets(subscriberID, targets)
-	identity := s.subscriberIdentity(subscriberID)
+	subscriber := s.lookupSubscriber(subscriberID)
 
 	changedKeys := make(map[string]struct{})
 	if s.loader != nil {
@@ -256,7 +263,12 @@ func (s *Server) handleSubscribe(stream grpc.BidiStreamingServer[controlv1.Conne
 		if policy == nil {
 			continue
 		}
-		if !matchesDataplaneIdentity(policy.GetService(), identity) {
+		if !matchesDelivery(subscriber, deliveryScope{
+			target:              target,
+			service:             policy.GetService(),
+			requireSubscription: true,
+			requireIdentity:     true,
+		}) {
 			continue
 		}
 		key := targetKey(model.ServiceRef{
@@ -403,10 +415,12 @@ func (s *Server) broadcastRoutePolicy(policy *controlv1.RoutePolicy, target mode
 	defer s.mu.RUnlock()
 
 	for _, subscriber := range s.subscribers {
-		if !subscriber.shouldReceive(target) {
-			continue
-		}
-		if !matchesDataplaneIdentity(policy.GetService(), subscriber.identity) {
+		if !matchesDelivery(subscriber, deliveryScope{
+			target:              target,
+			service:             policy.GetService(),
+			requireSubscription: true,
+			requireIdentity:     true,
+		}) {
 			continue
 		}
 		select {
@@ -421,11 +435,12 @@ func (s *Server) broadcastRoutePolicy(policy *controlv1.RoutePolicy, target mode
 }
 
 func (s *Server) broadcastForTarget(resp *controlv1.ConnectResponse, target model.ServiceRef) {
+	scope := responseDeliveryScope(resp, target)
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 
 	for _, subscriber := range s.subscribers {
-		if !subscriber.shouldReceive(target) {
+		if !matchesDelivery(subscriber, scope) {
 			continue
 		}
 		select {
@@ -451,6 +466,10 @@ func targetKey(target model.ServiceRef) string {
 }
 
 func matchesDataplaneIdentity(service *controlv1.ServiceRef, identity *controlv1.DataplaneIdentity) bool {
+	return matchesIdentityScope(service, identity)
+}
+
+func matchesIdentityScope(service *controlv1.ServiceRef, identity *controlv1.DataplaneIdentity) bool {
 	if service == nil || identity == nil {
 		return true
 	}
@@ -467,6 +486,42 @@ func matchesDimension(serviceValue, identityValue string) bool {
 	serviceValue = strings.TrimSpace(serviceValue)
 	identityValue = strings.TrimSpace(identityValue)
 	return serviceValue == "" || identityValue == "" || serviceValue == identityValue
+}
+
+func responseDeliveryScope(resp *controlv1.ConnectResponse, fallbackTarget model.ServiceRef) deliveryScope {
+	scope := deliveryScope{
+		target:              fallbackTarget,
+		requireSubscription: strings.TrimSpace(fallbackTarget.Service) != "",
+	}
+	if resp == nil {
+		return scope
+	}
+	switch body := resp.GetBody().(type) {
+	case *controlv1.ConnectResponse_ServiceSnapshot:
+		if snapshot := body.ServiceSnapshot; snapshot != nil {
+			scope.service = snapshot.GetService()
+		}
+	case *controlv1.ConnectResponse_RoutePolicy:
+		if policy := body.RoutePolicy; policy != nil {
+			scope.service = policy.GetService()
+			scope.requireIdentity = true
+			scope.requireSubscription = true
+		}
+	}
+	return scope
+}
+
+func matchesDelivery(subscriber *subscriber, scope deliveryScope) bool {
+	if subscriber == nil {
+		return false
+	}
+	if scope.requireSubscription && !subscriber.shouldReceive(scope.target) {
+		return false
+	}
+	if scope.requireIdentity && !matchesIdentityScope(scope.service, subscriber.identity) {
+		return false
+	}
+	return true
 }
 
 func (s *Server) updateSubscriberIdentity(id uint64, identity *controlv1.DataplaneIdentity) {
@@ -499,7 +554,7 @@ func (s *Server) updateSubscriberTargets(id uint64, targets []model.ServiceRef) 
 	}
 }
 
-func (s *Server) subscriberIdentity(id uint64) *controlv1.DataplaneIdentity {
+func (s *Server) lookupSubscriber(id uint64) *subscriber {
 	if id == 0 {
 		return nil
 	}
@@ -511,7 +566,7 @@ func (s *Server) subscriberIdentity(id uint64) *controlv1.DataplaneIdentity {
 	if !ok {
 		return nil
 	}
-	return subscriber.identity
+	return subscriber
 }
 
 func (s *subscriber) shouldReceive(target model.ServiceRef) bool {

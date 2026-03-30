@@ -76,6 +76,7 @@ service
   - sidecar 不再接受指向本地绑定服务身份的目标
   - sidecar 更明确地只承担“本地服务 -> 上游服务”的代理边界
   - sidecar 通过 `target_mode` 显式声明目标策略，默认 `upstream_only`
+  - sidecar 可通过 `allow_cross_scope_same_service` 放宽“同名但跨 namespace / env”的目标
 - 第十四版当前范围已完成：
   - control plane 成为 dataplane 默认主路径
   - control plane 开启时默认不再回退本地 source

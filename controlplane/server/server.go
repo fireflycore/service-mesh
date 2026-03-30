@@ -201,6 +201,7 @@ func (s *Server) handleSubscribe(stream grpc.BidiStreamingServer[controlv1.Conne
 		return nil
 	}
 	s.updateSubscriberTargets(subscriberID, targets)
+	identity := s.subscriberIdentity(subscriberID)
 
 	changedKeys := make(map[string]struct{})
 	if s.loader != nil {
@@ -224,22 +225,52 @@ func (s *Server) handleSubscribe(stream grpc.BidiStreamingServer[controlv1.Conne
 		}
 	}
 
+	sentPolicies := make(map[string]struct{}, len(targets))
 	for _, target := range targets {
 		if _, ok := changedKeys[targetKey(target)]; ok {
-			continue
+		} else {
+			snapshot, _ := s.store.Lookup(&controlv1.ServiceRef{
+				Service:   target.Service,
+				Namespace: target.Namespace,
+				Env:       target.Env,
+				Port:      target.Port,
+			})
+			if snapshot != nil {
+				if err := stream.Send(&controlv1.ConnectResponse{
+					Body: &controlv1.ConnectResponse_ServiceSnapshot{
+						ServiceSnapshot: snapshot,
+					},
+				}); err != nil {
+					return err
+				}
+			}
 		}
-		snapshot, _ := s.store.Lookup(&controlv1.ServiceRef{
+
+		_, policy := s.store.Lookup(&controlv1.ServiceRef{
 			Service:   target.Service,
 			Namespace: target.Namespace,
 			Env:       target.Env,
 			Port:      target.Port,
 		})
-		if snapshot == nil {
+		if policy == nil {
 			continue
 		}
+		if !matchesDataplaneIdentity(policy.GetService(), identity) {
+			continue
+		}
+		key := targetKey(model.ServiceRef{
+			Service:   policy.GetService().GetService(),
+			Namespace: policy.GetService().GetNamespace(),
+			Env:       policy.GetService().GetEnv(),
+			Port:      policy.GetService().GetPort(),
+		})
+		if _, ok := sentPolicies[key]; ok {
+			continue
+		}
+		sentPolicies[key] = struct{}{}
 		if err := stream.Send(&controlv1.ConnectResponse{
-			Body: &controlv1.ConnectResponse_ServiceSnapshot{
-				ServiceSnapshot: snapshot,
+			Body: &controlv1.ConnectResponse_RoutePolicy{
+				RoutePolicy: policy,
 			},
 		}); err != nil {
 			return err
@@ -417,6 +448,21 @@ func (s *Server) updateSubscriberTargets(id uint64, targets []model.ServiceRef) 
 	for _, target := range targets {
 		subscriber.targets[targetKey(target)] = target
 	}
+}
+
+func (s *Server) subscriberIdentity(id uint64) *controlv1.DataplaneIdentity {
+	if id == 0 {
+		return nil
+	}
+
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+
+	subscriber, ok := s.subscribers[id]
+	if !ok {
+		return nil
+	}
+	return subscriber.identity
 }
 
 func (s *subscriber) shouldReceive(target model.ServiceRef) bool {

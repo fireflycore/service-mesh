@@ -94,6 +94,7 @@ service
   - 启动日志与 OTel resource 已挂上 dataplane identity 关键字段
   - control plane 对订阅目标的推送已按目标粒度收敛，而不是默认广播给所有 dataplane
   - register 阶段的 snapshot / route policy 回放已按 dataplane identity 的 namespace / env 收敛
+  - subscribe 阶段的 route policy 同步也已按目标订阅与 dataplane identity 收敛
   - consul / etcd / ext_authz / telemetry 初始化等外部交互已补齐默认超时保护，避免缺环境时长时间挂起
 
 ## 设计原则

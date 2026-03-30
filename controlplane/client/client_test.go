@@ -240,6 +240,18 @@ func TestClientReceivesPushedSnapshotAfterRefresh(t *testing.T) {
 
 func TestClientTrackTargetTriggersSubscribeAndSnapshotSync(t *testing.T) {
 	store := snapshot.NewStore()
+	store.PutRoutePolicy(&controlv1.RoutePolicy{
+		Service: &controlv1.ServiceRef{
+			Service:   "orders",
+			Namespace: "default",
+			Env:       "dev",
+		},
+		Retry: &controlv1.RetryPolicy{
+			MaxAttempts:     2,
+			PerTryTimeoutMs: 500,
+		},
+		TimeoutMs: 1500,
+	})
 	loader := snapshot.NewLoader(
 		store,
 		memory.New(map[string]model.ServiceSnapshot{
@@ -314,9 +326,22 @@ func TestClientTrackTargetTriggersSubscribeAndSnapshotSync(t *testing.T) {
 			break
 		}
 
+		policy, policyOK := client.State().ResolveRoutePolicy(model.ServiceRef{
+			Service:   "orders",
+			Namespace: "default",
+			Env:       "dev",
+		})
+		if ok && policyOK {
+			if got, want := policy.GetTimeoutMs(), uint64(1500); got != want {
+				t.Fatalf("unexpected subscribed route policy timeout: got=%d want=%d", got, want)
+			}
+			cancel()
+			break
+		}
+
 		select {
 		case <-deadline:
-			t.Fatal("expected subscribed snapshot to reach client state")
+			t.Fatal("expected subscribed snapshot and route policy to reach client state")
 		case <-time.After(20 * time.Millisecond):
 		}
 	}

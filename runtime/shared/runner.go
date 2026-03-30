@@ -113,10 +113,10 @@ func New(cfg *config.Config, params Params) (*Runner, error) {
 		// 这样未显式填写 caller/target 维度时也能得到稳定默认值。
 		invokeOptions.LocalIdentity = &invoke.LocalIdentity{
 			// 当前阶段 AppID 与 ServiceName 保持一致，后续如有独立 app_id 再拆分。
-			AppID:     params.ServiceName,
-			Service:   params.ServiceName,
-			Namespace: strings.TrimSpace(params.Namespace),
-			Env:       strings.TrimSpace(params.Env),
+			AppID:      params.ServiceName,
+			Service:    params.ServiceName,
+			Namespace:  strings.TrimSpace(params.Namespace),
+			Env:        strings.TrimSpace(params.Env),
 			TargetMode: strings.TrimSpace(params.TargetMode),
 		}
 	}

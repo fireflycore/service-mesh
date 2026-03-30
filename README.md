@@ -88,6 +88,10 @@ service
   - `pull + cache` 刷新结果可主动推送给已连接 dataplane
   - control plane 已支持按已知目标做周期 refresh
   - 为后续 watch / 增量更新保留基础广播链路
+- 第十六版当前范围已完成首轮：
+  - dataplane identity 在 runtime 内按进程级稳定生成
+  - agent / sidecar 统一复用同一套 register identity 构造逻辑
+  - 启动日志与 OTel resource 已挂上 dataplane identity 关键字段
 
 ## 设计原则
 

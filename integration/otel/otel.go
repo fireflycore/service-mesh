@@ -6,6 +6,7 @@ import (
 
 	"github.com/fireflycore/service-mesh/pkg/config"
 	otelapi "go.opentelemetry.io/otel"
+	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/exporters/otlp/otlpmetric/otlpmetrichttp"
 	"go.opentelemetry.io/otel/exporters/otlp/otlptrace/otlptracehttp"
 	"go.opentelemetry.io/otel/propagation"
@@ -28,7 +29,7 @@ type Providers struct {
 }
 
 // New 根据 telemetry 配置安装全局 OTel provider。
-func New(ctx context.Context, cfg config.TelemetryConfig, serviceName string) (*Providers, error) {
+func New(ctx context.Context, cfg config.TelemetryConfig, serviceName string, attrs ...attribute.KeyValue) (*Providers, error) {
 	providers := &Providers{}
 
 	if !cfg.TraceEnabled && !cfg.MetricEnabled {
@@ -37,10 +38,9 @@ func New(ctx context.Context, cfg config.TelemetryConfig, serviceName string) (*
 	}
 
 	// resource 负责给 trace/metric 统一挂上 service.name 等资源属性。
+	baseAttrs := append([]attribute.KeyValue{semconv.ServiceName(serviceName)}, attrs...)
 	res, err := resource.New(ctx,
-		resource.WithAttributes(
-			semconv.ServiceName(serviceName),
-		),
+		resource.WithAttributes(baseAttrs...),
 		resource.WithTelemetrySDK(),
 		resource.WithProcess(),
 	)

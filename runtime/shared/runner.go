@@ -23,6 +23,7 @@ import (
 	"github.com/fireflycore/service-mesh/pkg/config"
 	"github.com/fireflycore/service-mesh/source"
 	"go.opentelemetry.io/contrib/instrumentation/google.golang.org/grpc/otelgrpc"
+	"go.opentelemetry.io/otel/attribute"
 	"google.golang.org/grpc"
 )
 
@@ -53,7 +54,8 @@ type Runner struct {
 	// cfg 保存全局配置，主要用于运行阶段读取控制面与 source 设置。
 	cfg *config.Config
 	// params 保存当前模式专属的监听与身份差异。
-	params Params
+	params   Params
+	identity runtimeIdentity
 	// grpcServer 是真正承载 MeshInvokeService 的本地服务端。
 	grpcServer *grpc.Server
 	// telemetry 管理全局 OTel provider 生命周期。
@@ -71,6 +73,7 @@ type Runner struct {
 // - controlplane client
 // - telemetry
 func New(cfg *config.Config, params Params) (*Runner, error) {
+	identity := buildIdentity(cfg, params)
 	// controlplane client 一方面负责 register/heartbeat，
 	// 另一方面也把下发状态暴露给 dataplane 作为 overlay。
 	controlplaneClient := controlclient.New(cfg.ControlPlane)
@@ -87,7 +90,7 @@ func New(cfg *config.Config, params Params) (*Runner, error) {
 	}
 
 	// telemetry provider 负责安装全局 OTel trace/meter provider。
-	telemetryProviders, err := otelintegration.New(context.Background(), cfg.Telemetry, "service-mesh-"+params.Mode)
+	telemetryProviders, err := otelintegration.New(context.Background(), cfg.Telemetry, "service-mesh-"+params.Mode, identity.resourceAttributes()...)
 	if err != nil {
 		// telemetry 初始化失败当前直接终止启动，避免进入半可观测状态。
 		return nil, err
@@ -132,6 +135,7 @@ func New(cfg *config.Config, params Params) (*Runner, error) {
 	return &Runner{
 		cfg:                cfg,
 		params:             params,
+		identity:           identity,
 		grpcServer:         grpcServer,
 		telemetry:          telemetryProviders,
 		controlplaneClient: controlplaneClient,
@@ -191,6 +195,8 @@ func (r *Runner) Run(ctx context.Context) error {
 		// 这些字段是所有模式都会打印的最小运行时身份。
 		slog.String("listen_address", r.params.Address),
 		slog.String("mode", r.params.Mode),
+		slog.String("dataplane_id", r.identity.DataplaneID),
+		slog.String("node_id", r.identity.NodeID),
 	}
 	attrs = append(attrs, r.params.LogAttributes...)
 	slog.LogAttrs(ctx, slog.LevelInfo, "service-mesh runtime started", attrs...)
@@ -219,16 +225,7 @@ func (r *Runner) runControlPlane(ctx context.Context) {
 	}
 
 	// identity 是 dataplane 在控制面视角下的稳定身份。
-	identity := &controlv1.DataplaneIdentity{
-		// dataplane_id 更偏实例级唯一标识；
-		// service/node/namespace/env 则更偏路由和策略匹配维度。
-		DataplaneId: r.dataplaneID(),
-		Mode:        r.params.Mode,
-		NodeId:      r.nodeID(),
-		Namespace:   r.namespace(),
-		Service:     r.serviceName(),
-		Env:         r.env(),
-	}
+	identity := r.identity.ControlPlane()
 
 	// 这里把 context.Canceled 排除掉，避免正常退出时刷无意义 warning。
 	if err := r.controlplaneClient.Run(ctx, identity); err != nil && !errors.Is(err, context.Canceled) {
@@ -257,54 +254,71 @@ func (r *Runner) listen() (net.Listener, func(), error) {
 	return listener, cleanup, nil
 }
 
-// dataplaneID 优先使用外部明确提供的实例标识。
-func (r *Runner) dataplaneID() string {
-	if strings.TrimSpace(r.params.InstanceID) != "" {
-		// sidecar 一般更希望复用业务实例 ID，而不是生成临时值。
-		return r.params.InstanceID
-	}
-	// agent 缺少显式实例 ID 时，用 hostname + 时间戳 生成本地唯一值。
-	return hostname() + "-" + strconv.FormatInt(time.Now().UnixNano(), 10)
+type runtimeIdentity struct {
+	DataplaneID string
+	Mode        string
+	NodeID      string
+	Namespace   string
+	Service     string
+	Env         string
 }
 
-// serviceName 返回当前运行时注册到 controlplane 的逻辑服务名。
-func (r *Runner) serviceName() string {
-	if strings.TrimSpace(r.params.ServiceName) != "" {
-		return r.params.ServiceName
+func buildIdentity(cfg *config.Config, params Params) runtimeIdentity {
+	service := strings.TrimSpace(params.ServiceName)
+	if service == "" {
+		service = "service-mesh-" + params.Mode
 	}
-	// 理论上大多数场景都会显式指定；这里只保留兜底命名。
-	return "service-mesh-" + r.params.Mode
+
+	nodeID := strings.TrimSpace(params.InstanceID)
+	if nodeID == "" {
+		nodeID = hostname()
+	}
+
+	dataplaneID := strings.TrimSpace(params.InstanceID)
+	if dataplaneID == "" {
+		dataplaneID = nodeID + "-" + strconv.FormatInt(time.Now().UnixNano(), 10)
+	}
+
+	namespace := strings.TrimSpace(params.Namespace)
+	if namespace == "" {
+		switch cfg.Source.Kind {
+		case "etcd":
+			namespace = cfg.Source.Etcd.Namespace
+		default:
+			namespace = cfg.Source.Consul.Namespace
+		}
+	}
+
+	return runtimeIdentity{
+		DataplaneID: dataplaneID,
+		Mode:        params.Mode,
+		NodeID:      nodeID,
+		Namespace:   strings.TrimSpace(namespace),
+		Service:     service,
+		Env:         strings.TrimSpace(params.Env),
+	}
 }
 
-// nodeID 返回当前进程所在节点或实例标识。
-func (r *Runner) nodeID() string {
-	if strings.TrimSpace(r.params.InstanceID) != "" {
-		// sidecar 绑定到具体实例时，nodeID 也沿用实例 ID，便于日志关联。
-		return r.params.InstanceID
-	}
-	// agent 没有实例 ID 时，nodeID 退回主机名，表示“所在节点”视角。
-	return hostname()
-}
-
-// namespace 优先使用运行时显式提供的业务命名空间。
-func (r *Runner) namespace() string {
-	if strings.TrimSpace(r.params.Namespace) != "" {
-		// sidecar 更倾向于使用和本地业务身份绑定的 namespace。
-		return r.params.Namespace
-	}
-	switch r.cfg.Source.Kind {
-	case "etcd":
-		// etcd 场景下，注册与目录解析通常共用同一个前缀 namespace。
-		return r.cfg.Source.Etcd.Namespace
-	default:
-		return r.cfg.Source.Consul.Namespace
+func (i runtimeIdentity) ControlPlane() *controlv1.DataplaneIdentity {
+	return &controlv1.DataplaneIdentity{
+		DataplaneId: i.DataplaneID,
+		Mode:        i.Mode,
+		NodeId:      i.NodeID,
+		Namespace:   i.Namespace,
+		Service:     i.Service,
+		Env:         i.Env,
 	}
 }
 
-// env 返回当前运行时所在环境。
-func (r *Runner) env() string {
-	// env 目前只对 sidecar 更常见；agent 没填时自然回退为空字符串。
-	return strings.TrimSpace(r.params.Env)
+func (i runtimeIdentity) resourceAttributes() []attribute.KeyValue {
+	return []attribute.KeyValue{
+		attribute.String("mesh.mode", i.Mode),
+		attribute.String("mesh.dataplane_id", i.DataplaneID),
+		attribute.String("mesh.node_id", i.NodeID),
+		attribute.String("mesh.namespace", i.Namespace),
+		attribute.String("mesh.service", i.Service),
+		attribute.String("mesh.env", i.Env),
+	}
 }
 
 // hostname 是 shared runner 中统一的主机名读取入口。

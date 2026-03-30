@@ -50,9 +50,10 @@ func Default() Config {
 				QueryTimeoutMS: 1000,
 			},
 			Etcd: EtcdSourceConfig{
-				Endpoints:     []string{"127.0.0.1:2379"},
-				Namespace:     "/microservice/lhdht",
-				DialTimeoutMS: 1000,
+				Endpoints:      []string{"127.0.0.1:2379"},
+				Namespace:      "/microservice/lhdht",
+				DialTimeoutMS:  1000,
+				QueryTimeoutMS: 1000,
 			},
 		},
 		Authz: AuthzConfig{

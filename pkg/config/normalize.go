@@ -64,6 +64,10 @@ func Normalize(cfg *Config) {
 	if cfg.Source.Etcd.DialTimeoutMS == 0 {
 		cfg.Source.Etcd.DialTimeoutMS = 1000
 	}
+	if cfg.Source.Etcd.QueryTimeoutMS == 0 {
+		// etcd 查询默认也限定 1 秒，避免 controlplane refresh 或 invoke 解析长期等待。
+		cfg.Source.Etcd.QueryTimeoutMS = 1000
+	}
 	if cfg.Source.Consul.QueryTimeoutMS == 0 {
 		// Consul 查询默认也限定 1 秒，避免本地没起 Consul 时长时间挂住。
 		cfg.Source.Consul.QueryTimeoutMS = 1000

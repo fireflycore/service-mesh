@@ -166,7 +166,9 @@ func (r *Runner) Run(ctx context.Context) error {
 	defer func() {
 		if r.telemetry != nil {
 			// 无论是正常退出还是启动后失败，都尽量 flush trace/metric。
-			_ = r.telemetry.Shutdown(context.Background())
+			shutdownCtx, cancel := context.WithTimeout(context.Background(), time.Second)
+			defer cancel()
+			_ = r.telemetry.Shutdown(shutdownCtx)
 		}
 	}()
 

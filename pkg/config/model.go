@@ -103,6 +103,8 @@ type EtcdSourceConfig struct {
 	Namespace string `yaml:"namespace"`
 	// DialTimeoutMS 控制 etcd client 建链超时。
 	DialTimeoutMS uint64 `yaml:"dial_timeout_ms"`
+	// QueryTimeoutMS 控制单次 etcd 目录查询的最长等待时间。
+	QueryTimeoutMS uint64 `yaml:"query_timeout_ms"`
 }
 
 // AuthzConfig 描述 ext_authz 连接与失败策略。

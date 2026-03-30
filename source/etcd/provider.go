@@ -95,6 +95,9 @@ func (p *Provider) Name() string {
 //
 // 其中 value 是一个 JSON ServiceNode。
 func (p *Provider) Resolve(ctx context.Context, target model.ServiceRef) (model.ServiceSnapshot, error) {
+	queryCtx, cancel := p.queryContext(ctx)
+	defer cancel()
+
 	namespace := strings.TrimSpace(target.Namespace)
 	if namespace == "" {
 		// 如果调用方没写 namespace，则回退到 provider 自己的默认前缀。
@@ -105,7 +108,7 @@ func (p *Provider) Resolve(ctx context.Context, target model.ServiceRef) (model.
 
 	// etcd 下按前缀扫描同一服务的所有 lease 实例。
 	prefix := fmt.Sprintf("%s/%s/%s", namespace, env, service)
-	response, err := p.client.Get(ctx, prefix, clientv3.WithPrefix())
+	response, err := p.client.Get(queryCtx, prefix, clientv3.WithPrefix())
 	if err != nil {
 		return model.ServiceSnapshot{}, err
 	}
@@ -135,6 +138,14 @@ func (p *Provider) Resolve(ctx context.Context, target model.ServiceRef) (model.
 	}
 
 	return snapshot, nil
+}
+
+func (p *Provider) queryContext(parent context.Context) (context.Context, context.CancelFunc) {
+	if _, ok := parent.Deadline(); ok {
+		return context.WithCancel(parent)
+	}
+	timeout := durationFromMS(p.Config.QueryTimeoutMS)
+	return context.WithTimeout(parent, timeout)
 }
 
 // decodeEndpoint 解析单条 etcd KV 并抽取可路由实例。

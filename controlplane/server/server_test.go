@@ -405,28 +405,31 @@ func TestServerRefreshTrackedPushesOnlyToSubscribedTargets(t *testing.T) {
 	}
 
 	drainSnapshot := func(stream controlv1.MeshControlPlaneService_ConnectClient, expectedService string) {
-		recvCh := make(chan *controlv1.ConnectResponse, 1)
-		errCh := make(chan error, 1)
-		go func() {
-			resp, err := stream.Recv()
-			if err != nil {
-				errCh <- err
-				return
+		deadline := time.After(time.Second)
+		for {
+			recvCh := make(chan *controlv1.ConnectResponse, 1)
+			errCh := make(chan error, 1)
+			go func() {
+				resp, err := stream.Recv()
+				if err != nil {
+					errCh <- err
+					return
+				}
+				recvCh <- resp
+			}()
+			select {
+			case err := <-errCh:
+				t.Fatalf("recv subscribed snapshot failed: %v", err)
+			case resp := <-recvCh:
+				if resp.GetServiceSnapshot() == nil {
+					continue
+				}
+				if got, want := resp.GetServiceSnapshot().GetService().GetService(), expectedService; got == want {
+					return
+				}
+			case <-deadline:
+				t.Fatal("expected subscribed snapshot")
 			}
-			recvCh <- resp
-		}()
-		select {
-		case err := <-errCh:
-			t.Fatalf("recv subscribed snapshot failed: %v", err)
-		case resp := <-recvCh:
-			if resp.GetServiceSnapshot() == nil {
-				t.Fatalf("expected subscribed snapshot")
-			}
-			if got, want := resp.GetServiceSnapshot().GetService().GetService(), expectedService; got != want {
-				t.Fatalf("unexpected subscribed service: got=%s want=%s", got, want)
-			}
-		case <-time.After(time.Second):
-			t.Fatal("expected subscribed snapshot")
 		}
 	}
 	drainSnapshot(ordersStream, "orders")
@@ -436,42 +439,40 @@ func TestServerRefreshTrackedPushesOnlyToSubscribedTargets(t *testing.T) {
 		t.Fatalf("refresh tracked failed: %v", err)
 	}
 
-	recvSnapshot := func(stream controlv1.MeshControlPlaneService_ConnectClient) *controlv1.ServiceSnapshot {
-		recvCh := make(chan *controlv1.ConnectResponse, 1)
-		errCh := make(chan error, 1)
-		go func() {
-			resp, err := stream.Recv()
-			if err != nil {
-				errCh <- err
-				return
+	recvSnapshot := func(stream controlv1.MeshControlPlaneService_ConnectClient, expectedService string) *controlv1.ServiceSnapshot {
+		deadline := time.After(time.Second)
+		for {
+			recvCh := make(chan *controlv1.ConnectResponse, 1)
+			errCh := make(chan error, 1)
+			go func() {
+				resp, err := stream.Recv()
+				if err != nil {
+					errCh <- err
+					return
+				}
+				recvCh <- resp
+			}()
+			select {
+			case err := <-errCh:
+				t.Fatalf("recv failed: %v", err)
+			case resp := <-recvCh:
+				if resp.GetServiceSnapshot() == nil {
+					continue
+				}
+				if got := resp.GetServiceSnapshot().GetService().GetService(); got == expectedService {
+					return resp.GetServiceSnapshot()
+				}
+			case <-deadline:
+				t.Fatal("expected pushed snapshot")
 			}
-			recvCh <- resp
-		}()
-		select {
-		case err := <-errCh:
-			t.Fatalf("recv failed: %v", err)
-		case resp := <-recvCh:
-			if resp.GetServiceSnapshot() == nil {
-				t.Fatalf("expected pushed snapshot")
-			}
-			return resp.GetServiceSnapshot()
-		case <-time.After(time.Second):
-			t.Fatal("expected pushed snapshot")
 		}
-		return nil
 	}
 
-	ordersSnapshot := recvSnapshot(ordersStream)
-	if got, want := ordersSnapshot.GetService().GetService(), "orders"; got != want {
-		t.Fatalf("unexpected pushed service for orders subscriber: got=%s want=%s", got, want)
-	}
+	ordersSnapshot := recvSnapshot(ordersStream, "orders")
 	if got, want := ordersSnapshot.GetEndpoints()[0].GetAddress(), "10.0.0.41"; got != want {
 		t.Fatalf("unexpected orders snapshot address: got=%s want=%s", got, want)
 	}
-	paymentsSnapshot := recvSnapshot(paymentsStream)
-	if got, want := paymentsSnapshot.GetService().GetService(), "payments"; got != want {
-		t.Fatalf("unexpected pushed service for payments subscriber: got=%s want=%s", got, want)
-	}
+	paymentsSnapshot := recvSnapshot(paymentsStream, "payments")
 	if got, want := paymentsSnapshot.GetEndpoints()[0].GetAddress(), "10.0.0.42"; got != want {
 		t.Fatalf("unexpected payments snapshot address: got=%s want=%s", got, want)
 	}

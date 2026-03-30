@@ -35,8 +35,12 @@ type Client struct {
 
 // New 创建 ext_authz client。
 func New(cfg config.AuthzConfig) (*Client, error) {
+	dialCtx, cancel := context.WithTimeout(context.Background(), dialTimeout(cfg.TimeoutMS))
+	defer cancel()
+
 	// ext_authz 目前固定使用 gRPC 明文连接；后续若需要可再扩展 TLS。
-	conn, err := grpc.Dial(
+	conn, err := grpc.DialContext(
+		dialCtx,
 		cfg.Target,
 		grpc.WithTransportCredentials(insecure.NewCredentials()),
 		grpc.WithStatsHandler(otelgrpc.NewClientHandler()),
@@ -176,4 +180,11 @@ func (c *Client) Close() error {
 		return fmt.Errorf("close ext_authz client %s failed: %w", c.target, err)
 	}
 	return nil
+}
+
+func dialTimeout(timeoutMS uint64) time.Duration {
+	if timeoutMS == 0 {
+		return 500 * time.Millisecond
+	}
+	return time.Duration(timeoutMS) * time.Millisecond
 }

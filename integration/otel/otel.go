@@ -3,6 +3,7 @@ package otel
 import (
 	"context"
 	"errors"
+	"time"
 
 	"github.com/fireflycore/service-mesh/pkg/config"
 	otelapi "go.opentelemetry.io/otel"
@@ -38,8 +39,10 @@ func New(ctx context.Context, cfg config.TelemetryConfig, serviceName string, at
 	}
 
 	// resource 负责给 trace/metric 统一挂上 service.name 等资源属性。
+	initCtx, cancel := boundedContext(ctx, time.Second)
+	defer cancel()
 	baseAttrs := append([]attribute.KeyValue{semconv.ServiceName(serviceName)}, attrs...)
-	res, err := resource.New(ctx,
+	res, err := resource.New(initCtx,
 		resource.WithAttributes(baseAttrs...),
 		resource.WithTelemetrySDK(),
 		resource.WithProcess(),
@@ -50,7 +53,7 @@ func New(ctx context.Context, cfg config.TelemetryConfig, serviceName string, at
 
 	if cfg.TraceEnabled {
 		// 当前 trace exporter 固定使用 OTLP/HTTP。
-		exporter, err := otlptracehttp.New(ctx, otlptracehttp.WithEndpointURL(cfg.OTLPEndpoint))
+		exporter, err := otlptracehttp.New(initCtx, otlptracehttp.WithEndpointURL(cfg.OTLPEndpoint))
 		if err != nil {
 			return nil, err
 		}
@@ -70,7 +73,7 @@ func New(ctx context.Context, cfg config.TelemetryConfig, serviceName string, at
 
 	if cfg.MetricEnabled {
 		// metric 同样走 OTLP/HTTP，并使用周期性 reader 主动导出。
-		exporter, err := otlpmetrichttp.New(ctx, otlpmetrichttp.WithEndpointURL(cfg.OTLPEndpoint))
+		exporter, err := otlpmetrichttp.New(initCtx, otlpmetrichttp.WithEndpointURL(cfg.OTLPEndpoint))
 		if err != nil {
 			return nil, err
 		}
@@ -100,4 +103,11 @@ func (p *Providers) Shutdown(ctx context.Context) error {
 	}
 
 	return shutdownErr
+}
+
+func boundedContext(parent context.Context, timeout time.Duration) (context.Context, context.CancelFunc) {
+	if _, ok := parent.Deadline(); ok {
+		return context.WithCancel(parent)
+	}
+	return context.WithTimeout(parent, timeout)
 }

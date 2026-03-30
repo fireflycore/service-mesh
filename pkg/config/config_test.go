@@ -94,6 +94,17 @@ func TestNormalizeDefaultsConsulQueryTimeout(t *testing.T) {
 	}
 }
 
+func TestNormalizeDefaultsEtcdQueryTimeout(t *testing.T) {
+	cfg := Default()
+	cfg.Source.Etcd.QueryTimeoutMS = 0
+
+	Normalize(&cfg)
+
+	if got, want := cfg.Source.Etcd.QueryTimeoutMS, uint64(1000); got != want {
+		t.Fatalf("unexpected etcd query timeout: got=%d want=%d", got, want)
+	}
+}
+
 func TestDefaultConfigDisablesSourceFallbackWhenControlPlaneEnabled(t *testing.T) {
 	cfg := Default()
 

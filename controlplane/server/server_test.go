@@ -58,6 +58,17 @@ func TestServerConnectSendsSnapshotAndPolicy(t *testing.T) {
 		Service: &controlv1.ServiceRef{
 			Service:   "orders",
 			Namespace: "default",
+		},
+		Retry: &controlv1.RetryPolicy{
+			MaxAttempts:     1,
+			PerTryTimeoutMs: 300,
+		},
+		TimeoutMs: 900,
+	})
+	store.PutRoutePolicy(&controlv1.RoutePolicy{
+		Service: &controlv1.ServiceRef{
+			Service:   "orders",
+			Namespace: "default",
 			Env:       "dev",
 		},
 		Retry: &controlv1.RetryPolicy{
@@ -76,6 +87,16 @@ func TestServerConnectSendsSnapshotAndPolicy(t *testing.T) {
 			{Address: "10.0.0.11", Port: 29090, Weight: 1},
 		},
 		Revision: "v2",
+	})
+	store.PutServiceSnapshot(&controlv1.ServiceSnapshot{
+		Service: &controlv1.ServiceRef{
+			Service:   "orders",
+			Namespace: "default",
+		},
+		Endpoints: []*controlv1.Endpoint{
+			{Address: "10.0.0.9", Port: 18090, Weight: 1},
+		},
+		Revision: "fallback",
 	})
 	store.PutServiceSnapshot(&controlv1.ServiceSnapshot{
 		Service: &controlv1.ServiceRef{
@@ -153,6 +174,8 @@ func TestServerConnectSendsSnapshotAndPolicy(t *testing.T) {
 
 	var snapshotCount int
 	var policyCount int
+	var ordersSnapshotAddress string
+	var ordersPolicyTimeout uint64
 	for i := 0; i < 3; i++ {
 		resp, err := stream.Recv()
 		if err != nil {
@@ -160,10 +183,16 @@ func TestServerConnectSendsSnapshotAndPolicy(t *testing.T) {
 		}
 		if resp.GetServiceSnapshot() != nil {
 			snapshotCount++
+			if resp.GetServiceSnapshot().GetService().GetService() == "orders" {
+				ordersSnapshotAddress = resp.GetServiceSnapshot().GetEndpoints()[0].GetAddress()
+			}
 			continue
 		}
 		if resp.GetRoutePolicy() != nil {
 			policyCount++
+			if resp.GetRoutePolicy().GetService().GetService() == "orders" {
+				ordersPolicyTimeout = resp.GetRoutePolicy().GetTimeoutMs()
+			}
 			continue
 		}
 		t.Fatalf("expected snapshot or route policy response")
@@ -173,6 +202,12 @@ func TestServerConnectSendsSnapshotAndPolicy(t *testing.T) {
 	}
 	if got, want := policyCount, 1; got != want {
 		t.Fatalf("unexpected route policy replay count: got=%d want=%d", got, want)
+	}
+	if got, want := ordersSnapshotAddress, "10.0.0.10"; got != want {
+		t.Fatalf("unexpected orders snapshot chosen by priority: got=%s want=%s", got, want)
+	}
+	if got, want := ordersPolicyTimeout, uint64(1500); got != want {
+		t.Fatalf("unexpected orders route policy chosen by priority: got=%d want=%d", got, want)
 	}
 }
 

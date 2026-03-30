@@ -135,12 +135,9 @@ func (s *Server) handleRegister(stream grpc.BidiStreamingServer[controlv1.Connec
 	}
 	identity := register.GetIdentity()
 
-	for _, serviceSnapshot := range s.store.AllServiceSnapshots() {
+	for _, serviceSnapshot := range selectBestSnapshotsForIdentity(s.store.AllServiceSnapshots(), identity) {
 		// 第十四版开始，register 后优先回放控制面当前已知的全部快照，
 		// 让 dataplane 默认依赖 controlplane 状态，而不是本地直连 source。
-		if !matchesIdentityScope(serviceSnapshot.GetService(), identity) {
-			continue
-		}
 		if err := stream.Send(&controlv1.ConnectResponse{
 			Body: &controlv1.ConnectResponse_ServiceSnapshot{
 				ServiceSnapshot: serviceSnapshot,
@@ -150,10 +147,7 @@ func (s *Server) handleRegister(stream grpc.BidiStreamingServer[controlv1.Connec
 		}
 	}
 
-	for _, routePolicy := range s.store.AllRoutePolicies() {
-		if !matchesIdentityScope(routePolicy.GetService(), identity) {
-			continue
-		}
+	for _, routePolicy := range selectBestRoutePoliciesForIdentity(s.store.AllRoutePolicies(), identity) {
 		// 路由策略和快照一样采用“全量当前状态回放”，保持 dataplane 本地视图完整。
 		if err := stream.Send(&controlv1.ConnectResponse{
 			Body: &controlv1.ConnectResponse_RoutePolicy{

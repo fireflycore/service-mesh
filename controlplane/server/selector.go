@@ -75,6 +75,75 @@ func matchIdentityScope(service *controlv1.ServiceRef, identity *controlv1.Datap
 	return matchPriorityFallback
 }
 
+func selectBestSnapshotsForIdentity(snapshots []*controlv1.ServiceSnapshot, identity *controlv1.DataplaneIdentity) []*controlv1.ServiceSnapshot {
+	best := make(map[string]*controlv1.ServiceSnapshot)
+	priorities := make(map[string]matchPriority)
+	for _, snapshot := range snapshots {
+		if snapshot == nil || snapshot.GetService() == nil {
+			continue
+		}
+		priority := matchIdentityScope(snapshot.GetService(), identity)
+		if priority == matchPriorityNone {
+			continue
+		}
+		key := resourceFamilyKey(snapshot.GetService())
+		if priority >= priorities[key] {
+			best[key] = snapshot
+			priorities[key] = priority
+		}
+	}
+	return collectSnapshots(best)
+}
+
+func selectBestRoutePoliciesForIdentity(policies []*controlv1.RoutePolicy, identity *controlv1.DataplaneIdentity) []*controlv1.RoutePolicy {
+	best := make(map[string]*controlv1.RoutePolicy)
+	priorities := make(map[string]matchPriority)
+	for _, policy := range policies {
+		if policy == nil || policy.GetService() == nil {
+			continue
+		}
+		priority := matchIdentityScope(policy.GetService(), identity)
+		if priority == matchPriorityNone {
+			continue
+		}
+		key := resourceFamilyKey(policy.GetService())
+		if priority >= priorities[key] {
+			best[key] = policy
+			priorities[key] = priority
+		}
+	}
+	return collectPolicies(best)
+}
+
+func resourceFamilyKey(service *controlv1.ServiceRef) string {
+	if service == nil {
+		return ""
+	}
+	return strings.TrimSpace(service.GetNamespace()) + "/" + strings.TrimSpace(service.GetService())
+}
+
+func collectSnapshots(values map[string]*controlv1.ServiceSnapshot) []*controlv1.ServiceSnapshot {
+	result := make([]*controlv1.ServiceSnapshot, 0, len(values))
+	for _, snapshot := range values {
+		if snapshot == nil {
+			continue
+		}
+		result = append(result, snapshot)
+	}
+	return result
+}
+
+func collectPolicies(values map[string]*controlv1.RoutePolicy) []*controlv1.RoutePolicy {
+	result := make([]*controlv1.RoutePolicy, 0, len(values))
+	for _, policy := range values {
+		if policy == nil {
+			continue
+		}
+		result = append(result, policy)
+	}
+	return result
+}
+
 func selectorFromResponse(resp *controlv1.ConnectResponse, fallbackTarget model.ServiceRef) resourceSelector {
 	selector := resourceSelector{
 		target:              fallbackTarget,

@@ -54,6 +54,8 @@ type AgentRuntimeConfig struct {
 type SidecarRuntimeConfig struct {
 	// Listen 是 sidecar 的本地入口地址。
 	Listen ListenConfig `yaml:"listen"`
+	// TargetMode 控制 sidecar 是否只代理上游服务，还是允许指向同名本地服务。
+	TargetMode string `yaml:"target_mode"`
 	// ServiceName 标识 sidecar 当前绑定的本地业务服务。
 	ServiceName string `yaml:"service_name"`
 	// InstanceID 标识 sidecar 当前绑定的具体实例。

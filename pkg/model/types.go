@@ -8,6 +8,9 @@ const (
 
 	SourceConsul = "consul"
 	SourceEtcd   = "etcd"
+
+	SidecarTargetModeUpstreamOnly     = "upstream_only"
+	SidecarTargetModeAllowSameService = "allow_same_service"
 )
 
 // ServiceRef 描述一个逻辑服务目标。

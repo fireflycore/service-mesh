@@ -1,6 +1,10 @@
 package config
 
-import "strings"
+import (
+	"strings"
+
+	"github.com/fireflycore/service-mesh/pkg/model"
+)
 
 // Normalize 负责把用户输入修整成更稳定的内部配置形态。
 //
@@ -20,6 +24,7 @@ func Normalize(cfg *Config) {
 	// 其余字符串类配置做 trim，避免首尾空格造成隐蔽错误。
 	cfg.Runtime.Agent.Listen.Address = strings.TrimSpace(cfg.Runtime.Agent.Listen.Address)
 	cfg.Runtime.Sidecar.Listen.Address = strings.TrimSpace(cfg.Runtime.Sidecar.Listen.Address)
+	cfg.Runtime.Sidecar.TargetMode = strings.TrimSpace(strings.ToLower(cfg.Runtime.Sidecar.TargetMode))
 	cfg.Runtime.Sidecar.ServiceName = strings.TrimSpace(cfg.Runtime.Sidecar.ServiceName)
 	cfg.Runtime.Sidecar.InstanceID = strings.TrimSpace(cfg.Runtime.Sidecar.InstanceID)
 	cfg.Runtime.Sidecar.Namespace = strings.TrimSpace(cfg.Runtime.Sidecar.Namespace)
@@ -75,6 +80,9 @@ func Normalize(cfg *Config) {
 	if cfg.Runtime.Sidecar.ServiceName == "" {
 		// service_name 缺省时给一个占位值，避免后续运行时装配拿到空字符串。
 		cfg.Runtime.Sidecar.ServiceName = "service-mesh-sidecar"
+	}
+	if cfg.Runtime.Sidecar.TargetMode == "" {
+		cfg.Runtime.Sidecar.TargetMode = model.SidecarTargetModeUpstreamOnly
 	}
 	if len(cfg.Invoke.RetryableCodes) == 0 {
 		// 只给典型瞬时错误默认开启重试，避免对明确业务错误做无意义重试。

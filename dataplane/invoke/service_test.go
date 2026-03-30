@@ -456,3 +456,42 @@ func TestServiceUnaryInvokeRejectsSidecarSelfTarget(t *testing.T) {
 		t.Fatalf("unexpected status code: %s", statusErr.Code())
 	}
 }
+
+func TestServiceUnaryInvokeAllowsSidecarSelfTargetWhenConfigured(t *testing.T) {
+	svc := NewService(
+		authz.NewAllowAll(),
+		resolver.New(memory.New(map[string]model.ServiceSnapshot{
+			"/microservice/lhdht/dev/config": {
+				Service: model.ServiceRef{
+					Service:   "config",
+					Namespace: "/microservice/lhdht",
+					Env:       "dev",
+				},
+				Endpoints: []model.Endpoint{{Address: "127.0.0.1", Port: 8080, Weight: 1}},
+			},
+		}), balancer.NewRoundRobin()),
+		&fakeTransport{},
+		Options{
+			LocalIdentity: &LocalIdentity{
+				Service:    "config",
+				Namespace:  "/microservice/lhdht",
+				Env:        "dev",
+				TargetMode: model.SidecarTargetModeAllowSameService,
+			},
+		},
+	)
+
+	resp, err := svc.UnaryInvoke(context.Background(), &invokev1.UnaryInvokeRequest{
+		Target: &invokev1.ServiceRef{
+			Service: "config",
+		},
+		Method:  "/acme.config.v1.ConfigService/GetConfig",
+		Payload: []byte("hello"),
+	})
+	if err != nil {
+		t.Fatalf("expected configured same-service target to succeed: %v", err)
+	}
+	if got, want := string(resp.GetPayload()), "127.0.0.1:hello"; got != want {
+		t.Fatalf("unexpected payload: got=%s want=%s", got, want)
+	}
+}

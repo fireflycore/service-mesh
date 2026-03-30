@@ -28,6 +28,8 @@ func Default() Config {
 					Network: "tcp",
 					Address: "127.0.0.1:19090",
 				},
+				// 默认只允许 sidecar 代理“本地服务 -> 上游服务”。
+				TargetMode: model.SidecarTargetModeUpstreamOnly,
 				// 给 sidecar 一个最小占位服务名，避免配置完全缺失时无法 Normalize。
 				ServiceName: "service-mesh-sidecar",
 			},

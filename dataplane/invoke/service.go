@@ -38,6 +38,8 @@ type LocalIdentity struct {
 	// Namespace/Env 用于把本地调用语义和目录/控制面维度对齐。
 	Namespace string
 	Env       string
+	// TargetMode 控制是否允许目标再次指向本地绑定服务身份。
+	TargetMode string
 }
 
 // Options 定义 Invoke 服务在第六版引入的可靠性策略。
@@ -441,6 +443,9 @@ func validateSidecarTarget(target model.ServiceRef, identity *LocalIdentity) err
 	if identity == nil {
 		return nil
 	}
+	if strings.TrimSpace(identity.TargetMode) == model.SidecarTargetModeAllowSameService {
+		return nil
+	}
 
 	targetService := strings.TrimSpace(target.Service)
 	identityService := strings.TrimSpace(identity.Service)
@@ -465,9 +470,13 @@ func normalizeLocalIdentity(identity LocalIdentity) *LocalIdentity {
 	identity.Service = strings.TrimSpace(identity.Service)
 	identity.Namespace = strings.TrimSpace(identity.Namespace)
 	identity.Env = strings.TrimSpace(identity.Env)
+	identity.TargetMode = strings.TrimSpace(strings.ToLower(identity.TargetMode))
 	if identity.AppID == "" {
 		// AppID 缺失时回退到 Service，保证 caller identity 始终是完整的。
 		identity.AppID = identity.Service
+	}
+	if identity.TargetMode == "" {
+		identity.TargetMode = model.SidecarTargetModeUpstreamOnly
 	}
 	return &identity
 }

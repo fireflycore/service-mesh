@@ -22,11 +22,13 @@ func New(cfg *config.Config) (*Runner, error) {
 		InstanceID:  cfg.Runtime.Sidecar.InstanceID,
 		Namespace:   cfg.Runtime.Sidecar.Namespace,
 		Env:         cfg.Runtime.Sidecar.Env,
+		TargetMode:  cfg.Runtime.Sidecar.TargetMode,
 		LogAttributes: []slog.Attr{
 			slog.String("service_name", cfg.Runtime.Sidecar.ServiceName),
 			slog.String("instance_id", cfg.Runtime.Sidecar.InstanceID),
 			slog.String("namespace", cfg.Runtime.Sidecar.Namespace),
 			slog.String("env", cfg.Runtime.Sidecar.Env),
+			slog.String("target_mode", cfg.Runtime.Sidecar.TargetMode),
 			slog.String("source_kind", cfg.Source.Kind),
 			slog.String("authz_target", cfg.Authz.Target),
 		},

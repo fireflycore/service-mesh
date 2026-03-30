@@ -24,6 +24,11 @@ func Validate(cfg Config) error {
 		if cfg.Runtime.Sidecar.Listen.Network != "tcp" {
 			return errors.New("runtime.sidecar.listen.network must be tcp")
 		}
+		switch cfg.Runtime.Sidecar.TargetMode {
+		case model.SidecarTargetModeUpstreamOnly, model.SidecarTargetModeAllowSameService:
+		default:
+			return errors.New("runtime.sidecar.target_mode must be upstream_only or allow_same_service")
+		}
 		if cfg.Runtime.Sidecar.ServiceName == "" {
 			return errors.New("runtime.sidecar.service_name is required")
 		}

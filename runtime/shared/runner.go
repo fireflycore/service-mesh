@@ -42,6 +42,8 @@ type Params struct {
 	// Namespace/Env 用于让 sidecar 和控制面/目录服务语义对齐。
 	Namespace string
 	Env       string
+	// TargetMode 只在 sidecar 模式下有意义，用于控制是否允许同名目标。
+	TargetMode string
 	// LogAttributes 允许不同模式追加自己的结构化日志字段。
 	LogAttributes []slog.Attr
 }
@@ -115,6 +117,7 @@ func New(cfg *config.Config, params Params) (*Runner, error) {
 			Service:   params.ServiceName,
 			Namespace: strings.TrimSpace(params.Namespace),
 			Env:       strings.TrimSpace(params.Env),
+			TargetMode: strings.TrimSpace(params.TargetMode),
 		}
 	}
 

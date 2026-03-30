@@ -1,6 +1,10 @@
 package config
 
-import "testing"
+import (
+	"testing"
+
+	"github.com/fireflycore/service-mesh/pkg/model"
+)
 
 // TestDefaultConfigIsValid 验证默认配置经过规范化后可以直接运行。
 func TestDefaultConfigIsValid(t *testing.T) {
@@ -55,5 +59,26 @@ func TestSidecarRequiresTCPListenNetwork(t *testing.T) {
 
 	if err := Validate(cfg); err == nil {
 		t.Fatal("expected sidecar with non-tcp listen network to fail")
+	}
+}
+
+func TestSidecarRejectsInvalidTargetMode(t *testing.T) {
+	cfg := Default()
+	cfg.Mode = "sidecar"
+	cfg.Runtime.Sidecar.TargetMode = "bad"
+
+	if err := Validate(cfg); err == nil {
+		t.Fatal("expected sidecar with invalid target_mode to fail")
+	}
+}
+
+func TestNormalizeDefaultsSidecarTargetMode(t *testing.T) {
+	cfg := Default()
+	cfg.Runtime.Sidecar.TargetMode = ""
+
+	Normalize(&cfg)
+
+	if got, want := cfg.Runtime.Sidecar.TargetMode, model.SidecarTargetModeUpstreamOnly; got != want {
+		t.Fatalf("unexpected target_mode: got=%s want=%s", got, want)
 	}
 }

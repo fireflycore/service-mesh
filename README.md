@@ -74,6 +74,7 @@ service
   - sidecar 本地监听当前明确收敛为 `tcp`
   - sidecar 不再接受指向本地绑定服务身份的目标
   - sidecar 更明确地只承担“本地服务 -> 上游服务”的代理边界
+  - sidecar 通过 `target_mode` 显式声明目标策略，默认 `upstream_only`
 
 ## 设计原则
 

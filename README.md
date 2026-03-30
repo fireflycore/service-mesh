@@ -102,6 +102,7 @@ service
   - matcher 已显式区分 exact / fallback 优先级，为后续更复杂命中顺序保留清晰语义
   - register 回放等多候选资源选择已优先取 exact 命中，必要时才回退 fallback
   - 主动推送路径也开始复用 exact / fallback 裁决，避免 fallback 资源覆盖 exact 订阅者
+  - resource arbitration 入口已统一化，register / subscribe / 主动推送开始复用同一套候选裁决模型
   - consul / etcd / ext_authz / telemetry 初始化等外部交互已补齐默认超时保护，避免缺环境时长时间挂起
 
 ## 设计原则

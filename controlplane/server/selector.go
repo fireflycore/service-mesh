@@ -32,6 +32,11 @@ type selectorMatch struct {
 	identity     matchPriority
 }
 
+type resourceArbitrator struct {
+	snapshots map[string]*controlv1.ServiceSnapshot
+	policies  map[string]*controlv1.RoutePolicy
+}
+
 func matchesDataplaneIdentity(service *controlv1.ServiceRef, identity *controlv1.DataplaneIdentity) bool {
 	return matchIdentityScope(service, identity) != matchPriorityNone
 }
@@ -76,6 +81,10 @@ func matchIdentityScope(service *controlv1.ServiceRef, identity *controlv1.Datap
 }
 
 func selectBestSnapshotsForIdentity(snapshots []*controlv1.ServiceSnapshot, identity *controlv1.DataplaneIdentity) []*controlv1.ServiceSnapshot {
+	return newResourceArbitrator(snapshots, nil, identity).SelectedSnapshots()
+}
+
+func selectBestSnapshotMapForIdentity(snapshots []*controlv1.ServiceSnapshot, identity *controlv1.DataplaneIdentity) map[string]*controlv1.ServiceSnapshot {
 	best := make(map[string]*controlv1.ServiceSnapshot)
 	priorities := make(map[string]matchPriority)
 	for _, snapshot := range snapshots {
@@ -92,10 +101,14 @@ func selectBestSnapshotsForIdentity(snapshots []*controlv1.ServiceSnapshot, iden
 			priorities[key] = priority
 		}
 	}
-	return collectSnapshots(best)
+	return best
 }
 
 func selectBestRoutePoliciesForIdentity(policies []*controlv1.RoutePolicy, identity *controlv1.DataplaneIdentity) []*controlv1.RoutePolicy {
+	return newResourceArbitrator(nil, policies, identity).SelectedPolicies()
+}
+
+func selectBestRoutePolicyMapForIdentity(policies []*controlv1.RoutePolicy, identity *controlv1.DataplaneIdentity) map[string]*controlv1.RoutePolicy {
 	best := make(map[string]*controlv1.RoutePolicy)
 	priorities := make(map[string]matchPriority)
 	for _, policy := range policies {
@@ -112,7 +125,7 @@ func selectBestRoutePoliciesForIdentity(policies []*controlv1.RoutePolicy, ident
 			priorities[key] = priority
 		}
 	}
-	return collectPolicies(best)
+	return best
 }
 
 func resourceFamilyKey(service *controlv1.ServiceRef) string {
@@ -142,6 +155,55 @@ func collectPolicies(values map[string]*controlv1.RoutePolicy) []*controlv1.Rout
 		result = append(result, policy)
 	}
 	return result
+}
+
+func newResourceArbitrator(snapshots []*controlv1.ServiceSnapshot, policies []*controlv1.RoutePolicy, identity *controlv1.DataplaneIdentity) resourceArbitrator {
+	return resourceArbitrator{
+		snapshots: selectBestSnapshotMapForIdentity(snapshots, identity),
+		policies:  selectBestRoutePolicyMapForIdentity(policies, identity),
+	}
+}
+
+func (a resourceArbitrator) SelectedSnapshots() []*controlv1.ServiceSnapshot {
+	return collectSnapshots(a.snapshots)
+}
+
+func (a resourceArbitrator) SelectedPolicies() []*controlv1.RoutePolicy {
+	return collectPolicies(a.policies)
+}
+
+func (a resourceArbitrator) SnapshotForTarget(target model.ServiceRef) *controlv1.ServiceSnapshot {
+	return a.snapshots[resourceFamilyKey(&controlv1.ServiceRef{
+		Service:   target.Service,
+		Namespace: target.Namespace,
+		Env:       target.Env,
+		Port:      target.Port,
+	})]
+}
+
+func (a resourceArbitrator) PolicyForTarget(target model.ServiceRef) *controlv1.RoutePolicy {
+	return a.policies[resourceFamilyKey(&controlv1.ServiceRef{
+		Service:   target.Service,
+		Namespace: target.Namespace,
+		Env:       target.Env,
+		Port:      target.Port,
+	})]
+}
+
+func (a resourceArbitrator) AllowsSnapshot(snapshot *controlv1.ServiceSnapshot) bool {
+	if snapshot == nil || snapshot.GetService() == nil {
+		return false
+	}
+	best, ok := a.snapshots[resourceFamilyKey(snapshot.GetService())]
+	return ok && best == snapshot
+}
+
+func (a resourceArbitrator) AllowsPolicy(policy *controlv1.RoutePolicy) bool {
+	if policy == nil || policy.GetService() == nil {
+		return false
+	}
+	best, ok := a.policies[resourceFamilyKey(policy.GetService())]
+	return ok && best == policy
 }
 
 func selectorFromResponse(resp *controlv1.ConnectResponse, fallbackTarget model.ServiceRef) resourceSelector {
@@ -256,6 +318,30 @@ func (s subscriberSelector) matchTarget(target model.ServiceRef) matchPriority {
 		return matchPriorityFallback
 	}
 	if _, ok := s.targets[targetKey(target)]; ok {
+		return matchPriorityExact
+	}
+	for _, subscribed := range s.targets {
+		if matchTargetFamily(subscribed, target) == matchPriorityFallback {
+			return matchPriorityFallback
+		}
+	}
+	return matchPriorityNone
+}
+
+func matchTargetFamily(subscribed, resource model.ServiceRef) matchPriority {
+	if strings.TrimSpace(subscribed.Service) == "" || strings.TrimSpace(resource.Service) == "" {
+		return matchPriorityNone
+	}
+	if strings.TrimSpace(subscribed.Namespace) != strings.TrimSpace(resource.Namespace) {
+		return matchPriorityNone
+	}
+	if strings.TrimSpace(subscribed.Service) != strings.TrimSpace(resource.Service) {
+		return matchPriorityNone
+	}
+	if strings.TrimSpace(subscribed.Env) == "" || strings.TrimSpace(resource.Env) == "" {
+		return matchPriorityFallback
+	}
+	if strings.TrimSpace(subscribed.Env) == strings.TrimSpace(resource.Env) {
 		return matchPriorityExact
 	}
 	return matchPriorityNone

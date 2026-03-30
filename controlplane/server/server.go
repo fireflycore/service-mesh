@@ -134,8 +134,9 @@ func (s *Server) handleRegister(stream grpc.BidiStreamingServer[controlv1.Connec
 		return nil
 	}
 	identity := register.GetIdentity()
+	arbitrator := newResourceArbitrator(s.store.AllServiceSnapshots(), s.store.AllRoutePolicies(), identity)
 
-	for _, serviceSnapshot := range selectBestSnapshotsForIdentity(s.store.AllServiceSnapshots(), identity) {
+	for _, serviceSnapshot := range arbitrator.SelectedSnapshots() {
 		// 第十四版开始，register 后优先回放控制面当前已知的全部快照，
 		// 让 dataplane 默认依赖 controlplane 状态，而不是本地直连 source。
 		if err := stream.Send(&controlv1.ConnectResponse{
@@ -147,7 +148,7 @@ func (s *Server) handleRegister(stream grpc.BidiStreamingServer[controlv1.Connec
 		}
 	}
 
-	for _, routePolicy := range selectBestRoutePoliciesForIdentity(s.store.AllRoutePolicies(), identity) {
+	for _, routePolicy := range arbitrator.SelectedPolicies() {
 		// 路由策略和快照一样采用“全量当前状态回放”，保持 dataplane 本地视图完整。
 		if err := stream.Send(&controlv1.ConnectResponse{
 			Body: &controlv1.ConnectResponse_RoutePolicy{
@@ -196,7 +197,9 @@ func (s *Server) handleSubscribe(stream grpc.BidiStreamingServer[controlv1.Conne
 		return nil
 	}
 	s.updateSubscriberTargets(subscriberID, targets)
-	selector := selectorFromSubscriber(s.lookupSubscriber(subscriberID))
+	subscriber := s.lookupSubscriber(subscriberID)
+	selector := selectorFromSubscriber(subscriber)
+	arbitrator := newResourceArbitrator(s.store.AllServiceSnapshots(), s.store.AllRoutePolicies(), selector.identity)
 
 	changedKeys := make(map[string]struct{})
 	if s.loader != nil {
@@ -224,12 +227,7 @@ func (s *Server) handleSubscribe(stream grpc.BidiStreamingServer[controlv1.Conne
 	for _, target := range targets {
 		if _, ok := changedKeys[targetKey(target)]; ok {
 		} else {
-			snapshot, _ := s.store.Lookup(&controlv1.ServiceRef{
-				Service:   target.Service,
-				Namespace: target.Namespace,
-				Env:       target.Env,
-				Port:      target.Port,
-			})
+			snapshot := arbitrator.SnapshotForTarget(target)
 			if snapshot != nil {
 				if err := stream.Send(&controlv1.ConnectResponse{
 					Body: &controlv1.ConnectResponse_ServiceSnapshot{
@@ -241,12 +239,7 @@ func (s *Server) handleSubscribe(stream grpc.BidiStreamingServer[controlv1.Conne
 			}
 		}
 
-		_, policy := s.store.Lookup(&controlv1.ServiceRef{
-			Service:   target.Service,
-			Namespace: target.Namespace,
-			Env:       target.Env,
-			Port:      target.Port,
-		})
+		policy := arbitrator.PolicyForTarget(target)
 		if policy == nil {
 			continue
 		}
@@ -396,8 +389,12 @@ func (s *Server) broadcastRoutePolicy(policy *controlv1.RoutePolicy, target mode
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 
+	arbitrators := make(map[string]resourceArbitrator)
 	for _, subscriber := range s.subscribers {
 		if !matchesSelectors(selectorFromSubscriber(subscriber), selectorFromRoutePolicy(policy, target, true)) {
+			continue
+		}
+		if !s.shouldPushPolicyToSubscriber(arbitrators, subscriber, policy) {
 			continue
 		}
 		select {
@@ -416,8 +413,12 @@ func (s *Server) broadcastForTarget(resp *controlv1.ConnectResponse, target mode
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 
+	arbitrators := make(map[string]resourceArbitrator)
 	for _, subscriber := range s.subscribers {
 		if !matchesSelectors(selectorFromSubscriber(subscriber), resource) {
+			continue
+		}
+		if !s.shouldPushSnapshotToSubscriber(arbitrators, subscriber, resp) {
 			continue
 		}
 		select {
@@ -440,6 +441,42 @@ func (s *Server) trackedTargetList() []model.ServiceRef {
 
 func targetKey(target model.ServiceRef) string {
 	return target.Namespace + "/" + target.Env + "/" + target.Service
+}
+
+func (s *Server) shouldPushPolicyToSubscriber(cache map[string]resourceArbitrator, subscriber *subscriber, policy *controlv1.RoutePolicy) bool {
+	if policy == nil || policy.GetService() == nil {
+		return false
+	}
+	return s.arbitratorForSubscriber(cache, subscriber).AllowsPolicy(policy)
+}
+
+func (s *Server) shouldPushSnapshotToSubscriber(cache map[string]resourceArbitrator, subscriber *subscriber, resp *controlv1.ConnectResponse) bool {
+	if resp == nil || resp.GetServiceSnapshot() == nil {
+		return true
+	}
+	snapshot := resp.GetServiceSnapshot()
+	if snapshot.GetService() == nil {
+		return false
+	}
+	return s.arbitratorForSubscriber(cache, subscriber).AllowsSnapshot(snapshot)
+}
+
+func (s *Server) arbitratorForSubscriber(cache map[string]resourceArbitrator, subscriber *subscriber) resourceArbitrator {
+	identityKey := subscriberIdentityKey(subscriber)
+	if arbitrator, ok := cache[identityKey]; ok {
+		return arbitrator
+	}
+	arbitrator := newResourceArbitrator(s.store.AllServiceSnapshots(), s.store.AllRoutePolicies(), subscriber.identity)
+	cache[identityKey] = arbitrator
+	return arbitrator
+}
+
+func subscriberIdentityKey(subscriber *subscriber) string {
+	if subscriber == nil || subscriber.identity == nil {
+		return ""
+	}
+	identity := subscriber.identity
+	return identity.GetNamespace() + "/" + identity.GetEnv() + "/" + identity.GetDataplaneId() + "/" + identity.GetNodeId()
 }
 
 func (s *Server) updateSubscriberIdentity(id uint64, identity *controlv1.DataplaneIdentity) {

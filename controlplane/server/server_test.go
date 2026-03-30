@@ -623,7 +623,26 @@ func TestServerUpsertRoutePolicyPushesOnlyToMatchingSubscribers(t *testing.T) {
 		}
 	}
 	drainSnapshot(devStream)
-	drainSnapshot(prodStream)
+
+	resultCh := make(chan *controlv1.ConnectResponse, 1)
+	errCh := make(chan error, 1)
+	go func() {
+		resp, err := prodStream.Recv()
+		if err != nil {
+			errCh <- err
+			return
+		}
+		resultCh <- resp
+	}()
+
+	select {
+	case resp := <-resultCh:
+		if resp.GetServiceSnapshot() != nil || resp.GetRoutePolicy() != nil {
+			t.Fatal("did not expect prod subscriber to receive subscribed state for dev target")
+		}
+	case <-errCh:
+	case <-time.After(300 * time.Millisecond):
+	}
 
 	changed := srv.UpsertRoutePolicy(&controlv1.RoutePolicy{
 		Service: &controlv1.ServiceRef{
@@ -660,8 +679,8 @@ func TestServerUpsertRoutePolicyPushesOnlyToMatchingSubscribers(t *testing.T) {
 		}
 	}
 
-	resultCh := make(chan *controlv1.ConnectResponse, 1)
-	errCh := make(chan error, 1)
+	resultCh = make(chan *controlv1.ConnectResponse, 1)
+	errCh = make(chan error, 1)
 	go func() {
 		resp, err := prodStream.Recv()
 		if err != nil {
@@ -775,6 +794,163 @@ func TestEvaluateSelectorMatchExposesExactAndFallbackPriority(t *testing.T) {
 	}
 	if !fallbackMatch.matched() {
 		t.Fatal("expected fallback match to still be considered matched")
+	}
+}
+
+func TestResourceArbitratorPrefersExactCandidateForTarget(t *testing.T) {
+	arbitrator := newResourceArbitrator(
+		[]*controlv1.ServiceSnapshot{
+			{
+				Service: &controlv1.ServiceRef{
+					Service:   "orders",
+					Namespace: "default",
+				},
+				Endpoints: []*controlv1.Endpoint{{Address: "10.0.0.9", Port: 18090, Weight: 1}},
+			},
+			{
+				Service: &controlv1.ServiceRef{
+					Service:   "orders",
+					Namespace: "default",
+					Env:       "dev",
+				},
+				Endpoints: []*controlv1.Endpoint{{Address: "10.0.0.10", Port: 19090, Weight: 1}},
+			},
+		},
+		[]*controlv1.RoutePolicy{
+			{
+				Service: &controlv1.ServiceRef{
+					Service:   "orders",
+					Namespace: "default",
+				},
+				TimeoutMs: 900,
+			},
+			{
+				Service: &controlv1.ServiceRef{
+					Service:   "orders",
+					Namespace: "default",
+					Env:       "dev",
+				},
+				TimeoutMs: 1500,
+			},
+		},
+		&controlv1.DataplaneIdentity{
+			Namespace: "default",
+			Env:       "dev",
+		},
+	)
+
+	snapshot := arbitrator.SnapshotForTarget(model.ServiceRef{
+		Service:   "orders",
+		Namespace: "default",
+		Env:       "dev",
+	})
+	if snapshot == nil || snapshot.GetEndpoints()[0].GetAddress() != "10.0.0.10" {
+		t.Fatal("expected exact snapshot candidate to win arbitration")
+	}
+
+	policy := arbitrator.PolicyForTarget(model.ServiceRef{
+		Service:   "orders",
+		Namespace: "default",
+		Env:       "dev",
+	})
+	if policy == nil || policy.GetTimeoutMs() != 1500 {
+		t.Fatal("expected exact route policy candidate to win arbitration")
+	}
+}
+
+func TestServerShouldPushFallbackPolicyOnlyWhenItIsBestCandidate(t *testing.T) {
+	store := snapshot.NewStore()
+	fallbackPolicy := &controlv1.RoutePolicy{
+		Service: &controlv1.ServiceRef{
+			Service:   "orders",
+			Namespace: "default",
+		},
+		TimeoutMs: 900,
+	}
+	exactPolicy := &controlv1.RoutePolicy{
+		Service: &controlv1.ServiceRef{
+			Service:   "orders",
+			Namespace: "default",
+			Env:       "dev",
+		},
+		TimeoutMs: 1500,
+	}
+	store.PutRoutePolicy(fallbackPolicy)
+	store.PutRoutePolicy(exactPolicy)
+
+	srv := New(store)
+	sub := &subscriber{
+		identity: &controlv1.DataplaneIdentity{
+			Namespace: "default",
+			Env:       "dev",
+		},
+		targets: map[string]model.ServiceRef{
+			"default/dev/orders": {
+				Service:   "orders",
+				Namespace: "default",
+				Env:       "dev",
+			},
+		},
+	}
+
+	if srv.shouldPushPolicyToSubscriber(make(map[string]resourceArbitrator), sub, fallbackPolicy) {
+		t.Fatal("expected fallback policy to be skipped when exact policy exists")
+	}
+	if !srv.shouldPushPolicyToSubscriber(make(map[string]resourceArbitrator), sub, exactPolicy) {
+		t.Fatal("expected exact policy to be selected for subscriber")
+	}
+}
+
+func TestServerShouldPushFallbackSnapshotOnlyWhenItIsBestCandidate(t *testing.T) {
+	store := snapshot.NewStore()
+	fallbackSnapshot := &controlv1.ServiceSnapshot{
+		Service: &controlv1.ServiceRef{
+			Service:   "orders",
+			Namespace: "default",
+		},
+		Endpoints: []*controlv1.Endpoint{
+			{Address: "10.0.0.9", Port: 18090, Weight: 1},
+		},
+		Revision: "fallback",
+	}
+	exactSnapshot := &controlv1.ServiceSnapshot{
+		Service: &controlv1.ServiceRef{
+			Service:   "orders",
+			Namespace: "default",
+			Env:       "dev",
+		},
+		Endpoints: []*controlv1.Endpoint{
+			{Address: "10.0.0.10", Port: 19090, Weight: 1},
+		},
+		Revision: "exact",
+	}
+	store.PutServiceSnapshot(fallbackSnapshot)
+	store.PutServiceSnapshot(exactSnapshot)
+
+	srv := New(store)
+	sub := &subscriber{
+		identity: &controlv1.DataplaneIdentity{
+			Namespace: "default",
+			Env:       "dev",
+		},
+		targets: map[string]model.ServiceRef{
+			"default/dev/orders": {
+				Service:   "orders",
+				Namespace: "default",
+				Env:       "dev",
+			},
+		},
+	}
+
+	if srv.shouldPushSnapshotToSubscriber(make(map[string]resourceArbitrator), sub, &controlv1.ConnectResponse{
+		Body: &controlv1.ConnectResponse_ServiceSnapshot{ServiceSnapshot: fallbackSnapshot},
+	}) {
+		t.Fatal("expected fallback snapshot to be skipped when exact snapshot exists")
+	}
+	if !srv.shouldPushSnapshotToSubscriber(make(map[string]resourceArbitrator), sub, &controlv1.ConnectResponse{
+		Body: &controlv1.ConnectResponse_ServiceSnapshot{ServiceSnapshot: exactSnapshot},
+	}) {
+		t.Fatal("expected exact snapshot to be selected for subscriber")
 	}
 }
 

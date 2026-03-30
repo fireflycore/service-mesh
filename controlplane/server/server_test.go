@@ -664,7 +664,7 @@ func TestMatchesDeliveryUsesUnifiedSubscriptionAndIdentityRules(t *testing.T) {
 		},
 	}
 
-	if !matchesDelivery(sub, deliveryScope{
+	if !matchesSelectors(selectorFromSubscriber(sub), resourceSelector{
 		target:              model.ServiceRef{Service: "orders", Namespace: "default", Env: "dev"},
 		service:             &controlv1.ServiceRef{Service: "orders", Namespace: "default", Env: "dev"},
 		requireSubscription: true,
@@ -673,7 +673,7 @@ func TestMatchesDeliveryUsesUnifiedSubscriptionAndIdentityRules(t *testing.T) {
 		t.Fatal("expected matching delivery to pass")
 	}
 
-	if matchesDelivery(sub, deliveryScope{
+	if matchesSelectors(selectorFromSubscriber(sub), resourceSelector{
 		target:              model.ServiceRef{Service: "payments", Namespace: "default", Env: "dev"},
 		service:             &controlv1.ServiceRef{Service: "payments", Namespace: "default", Env: "dev"},
 		requireSubscription: true,
@@ -682,7 +682,7 @@ func TestMatchesDeliveryUsesUnifiedSubscriptionAndIdentityRules(t *testing.T) {
 		t.Fatal("expected different subscribed target to fail")
 	}
 
-	if matchesDelivery(sub, deliveryScope{
+	if matchesSelectors(selectorFromSubscriber(sub), resourceSelector{
 		target:              model.ServiceRef{Service: "orders", Namespace: "default", Env: "dev"},
 		service:             &controlv1.ServiceRef{Service: "orders", Namespace: "default", Env: "prod"},
 		requireSubscription: true,

@@ -33,7 +33,12 @@ type subscriber struct {
 	targets  map[string]model.ServiceRef
 }
 
-type deliveryScope struct {
+type subscriberSelector struct {
+	identity *controlv1.DataplaneIdentity
+	targets  map[string]model.ServiceRef
+}
+
+type resourceSelector struct {
 	target              model.ServiceRef
 	service             *controlv1.ServiceRef
 	requireSubscription bool
@@ -209,7 +214,7 @@ func (s *Server) handleSubscribe(stream grpc.BidiStreamingServer[controlv1.Conne
 		return nil
 	}
 	s.updateSubscriberTargets(subscriberID, targets)
-	subscriber := s.lookupSubscriber(subscriberID)
+	selector := selectorFromSubscriber(s.lookupSubscriber(subscriberID))
 
 	changedKeys := make(map[string]struct{})
 	if s.loader != nil {
@@ -263,12 +268,7 @@ func (s *Server) handleSubscribe(stream grpc.BidiStreamingServer[controlv1.Conne
 		if policy == nil {
 			continue
 		}
-		if !matchesDelivery(subscriber, deliveryScope{
-			target:              target,
-			service:             policy.GetService(),
-			requireSubscription: true,
-			requireIdentity:     true,
-		}) {
+		if !matchesSelectors(selector, selectorFromRoutePolicy(policy, target, true)) {
 			continue
 		}
 		key := targetKey(model.ServiceRef{
@@ -415,12 +415,7 @@ func (s *Server) broadcastRoutePolicy(policy *controlv1.RoutePolicy, target mode
 	defer s.mu.RUnlock()
 
 	for _, subscriber := range s.subscribers {
-		if !matchesDelivery(subscriber, deliveryScope{
-			target:              target,
-			service:             policy.GetService(),
-			requireSubscription: true,
-			requireIdentity:     true,
-		}) {
+		if !matchesSelectors(selectorFromSubscriber(subscriber), selectorFromRoutePolicy(policy, target, true)) {
 			continue
 		}
 		select {
@@ -435,12 +430,12 @@ func (s *Server) broadcastRoutePolicy(policy *controlv1.RoutePolicy, target mode
 }
 
 func (s *Server) broadcastForTarget(resp *controlv1.ConnectResponse, target model.ServiceRef) {
-	scope := responseDeliveryScope(resp, target)
+	resource := selectorFromResponse(resp, target)
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 
 	for _, subscriber := range s.subscribers {
-		if !matchesDelivery(subscriber, scope) {
+		if !matchesSelectors(selectorFromSubscriber(subscriber), resource) {
 			continue
 		}
 		select {
@@ -488,40 +483,88 @@ func matchesDimension(serviceValue, identityValue string) bool {
 	return serviceValue == "" || identityValue == "" || serviceValue == identityValue
 }
 
-func responseDeliveryScope(resp *controlv1.ConnectResponse, fallbackTarget model.ServiceRef) deliveryScope {
-	scope := deliveryScope{
+func selectorFromResponse(resp *controlv1.ConnectResponse, fallbackTarget model.ServiceRef) resourceSelector {
+	selector := resourceSelector{
 		target:              fallbackTarget,
 		requireSubscription: strings.TrimSpace(fallbackTarget.Service) != "",
 	}
 	if resp == nil {
-		return scope
+		return selector
 	}
 	switch body := resp.GetBody().(type) {
 	case *controlv1.ConnectResponse_ServiceSnapshot:
 		if snapshot := body.ServiceSnapshot; snapshot != nil {
-			scope.service = snapshot.GetService()
+			return selectorFromSnapshot(snapshot, fallbackTarget, selector.requireSubscription)
 		}
 	case *controlv1.ConnectResponse_RoutePolicy:
 		if policy := body.RoutePolicy; policy != nil {
-			scope.service = policy.GetService()
-			scope.requireIdentity = true
-			scope.requireSubscription = true
+			return selectorFromRoutePolicy(policy, fallbackTarget, true)
 		}
 	}
-	return scope
+	return selector
 }
 
-func matchesDelivery(subscriber *subscriber, scope deliveryScope) bool {
+func selectorFromSnapshot(snapshot *controlv1.ServiceSnapshot, fallbackTarget model.ServiceRef, requireSubscription bool) resourceSelector {
+	selector := resourceSelector{
+		target:              fallbackTarget,
+		requireSubscription: requireSubscription,
+	}
+	if snapshot != nil {
+		selector.service = snapshot.GetService()
+		if strings.TrimSpace(selector.target.Service) == "" && snapshot.GetService() != nil {
+			selector.target = toModelTarget(snapshot.GetService())
+			selector.requireSubscription = true
+		}
+	}
+	return selector
+}
+
+func selectorFromRoutePolicy(policy *controlv1.RoutePolicy, fallbackTarget model.ServiceRef, requireSubscription bool) resourceSelector {
+	selector := resourceSelector{
+		target:              fallbackTarget,
+		requireSubscription: requireSubscription,
+		requireIdentity:     true,
+	}
+	if policy != nil {
+		selector.service = policy.GetService()
+		if strings.TrimSpace(selector.target.Service) == "" && policy.GetService() != nil {
+			selector.target = toModelTarget(policy.GetService())
+			selector.requireSubscription = true
+		}
+	}
+	return selector
+}
+
+func selectorFromSubscriber(subscriber *subscriber) subscriberSelector {
 	if subscriber == nil {
+		return subscriberSelector{}
+	}
+	return subscriberSelector{
+		identity: subscriber.identity,
+		targets:  subscriber.targets,
+	}
+}
+
+func matchesSelectors(subscriber subscriberSelector, resource resourceSelector) bool {
+	if resource.requireSubscription && !subscriber.acceptsTarget(resource.target) {
 		return false
 	}
-	if scope.requireSubscription && !subscriber.shouldReceive(scope.target) {
-		return false
-	}
-	if scope.requireIdentity && !matchesIdentityScope(scope.service, subscriber.identity) {
+	if resource.requireIdentity && !matchesIdentityScope(resource.service, subscriber.identity) {
 		return false
 	}
 	return true
+}
+
+func toModelTarget(service *controlv1.ServiceRef) model.ServiceRef {
+	if service == nil {
+		return model.ServiceRef{}
+	}
+	return model.ServiceRef{
+		Service:   service.GetService(),
+		Namespace: service.GetNamespace(),
+		Env:       service.GetEnv(),
+		Port:      service.GetPort(),
+	}
 }
 
 func (s *Server) updateSubscriberIdentity(id uint64, identity *controlv1.DataplaneIdentity) {
@@ -570,9 +613,10 @@ func (s *Server) lookupSubscriber(id uint64) *subscriber {
 }
 
 func (s *subscriber) shouldReceive(target model.ServiceRef) bool {
-	if s == nil {
-		return false
-	}
+	return selectorFromSubscriber(s).acceptsTarget(target)
+}
+
+func (s subscriberSelector) acceptsTarget(target model.ServiceRef) bool {
 	if strings.TrimSpace(target.Service) == "" {
 		return true
 	}

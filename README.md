@@ -92,6 +92,7 @@ service
   - dataplane identity 在 runtime 内按进程级稳定生成
   - agent / sidecar 统一复用同一套 register identity 构造逻辑
   - 启动日志与 OTel resource 已挂上 dataplane identity 关键字段
+  - control plane 对订阅目标的推送已按目标粒度收敛，而不是默认广播给所有 dataplane
 
 ## 设计原则
 

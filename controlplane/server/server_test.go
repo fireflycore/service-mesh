@@ -225,6 +225,149 @@ func TestServerRefreshTrackedBroadcastsChangedSnapshot(t *testing.T) {
 	}
 }
 
+func TestServerRefreshTrackedPushesOnlyToSubscribedTargets(t *testing.T) {
+	store := snapshot.NewStore()
+	loader := snapshot.NewLoader(
+		store,
+		memory.New(map[string]model.ServiceSnapshot{
+			"default/dev/orders": {
+				Service: model.ServiceRef{
+					Service:   "orders",
+					Namespace: "default",
+					Env:       "dev",
+				},
+				Endpoints: []model.Endpoint{
+					{Address: "10.0.0.31", Port: 19090, Weight: 1},
+				},
+			},
+			"default/dev/payments": {
+				Service: model.ServiceRef{
+					Service:   "payments",
+					Namespace: "default",
+					Env:       "dev",
+				},
+				Endpoints: []model.Endpoint{
+					{Address: "10.0.0.32", Port: 19091, Weight: 1},
+				},
+			},
+		}),
+	)
+	srv := NewWithLoader(store, loader)
+	srv.TrackTarget(model.ServiceRef{Service: "orders", Namespace: "default", Env: "dev"})
+	srv.TrackTarget(model.ServiceRef{Service: "payments", Namespace: "default", Env: "dev"})
+
+	grpcServer := grpc.NewServer()
+	controlv1.RegisterMeshControlPlaneServiceServer(grpcServer, srv)
+
+	listener, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatalf("listen failed: %v", err)
+	}
+	defer listener.Close()
+
+	go func() {
+		_ = grpcServer.Serve(listener)
+	}()
+	defer grpcServer.Stop()
+
+	dial := func() controlv1.MeshControlPlaneService_ConnectClient {
+		conn, err := grpc.DialContext(
+			context.Background(),
+			listener.Addr().String(),
+			grpc.WithTransportCredentials(insecure.NewCredentials()),
+		)
+		if err != nil {
+			t.Fatalf("dial failed: %v", err)
+		}
+		t.Cleanup(func() { _ = conn.Close() })
+
+		stream, err := controlv1.NewMeshControlPlaneServiceClient(conn).Connect(context.Background())
+		if err != nil {
+			t.Fatalf("connect failed: %v", err)
+		}
+		if err := stream.Send(&controlv1.ConnectRequest{
+			Body: &controlv1.ConnectRequest_Register{
+				Register: &controlv1.DataplaneRegister{
+					Identity: &controlv1.DataplaneIdentity{
+						DataplaneId: "dp-1",
+						Mode:        "agent",
+						NodeId:      "node-1",
+						Namespace:   "default",
+						Service:     "service-mesh-agent",
+						Env:         "dev",
+					},
+				},
+			},
+		}); err != nil {
+			t.Fatalf("send register failed: %v", err)
+		}
+		return stream
+	}
+
+	ordersStream := dial()
+	paymentsStream := dial()
+
+	if err := ordersStream.Send(&controlv1.ConnectRequest{
+		Body: &controlv1.ConnectRequest_Subscribe{
+			Subscribe: &controlv1.TargetSubscription{
+				Services: []*controlv1.ServiceRef{{Service: "orders", Namespace: "default", Env: "dev"}},
+			},
+		},
+	}); err != nil {
+		t.Fatalf("subscribe orders failed: %v", err)
+	}
+	if err := paymentsStream.Send(&controlv1.ConnectRequest{
+		Body: &controlv1.ConnectRequest_Subscribe{
+			Subscribe: &controlv1.TargetSubscription{
+				Services: []*controlv1.ServiceRef{{Service: "payments", Namespace: "default", Env: "dev"}},
+			},
+		},
+	}); err != nil {
+		t.Fatalf("subscribe payments failed: %v", err)
+	}
+
+	drainSnapshot := func(stream controlv1.MeshControlPlaneService_ConnectClient) {
+		resp, err := stream.Recv()
+		if err != nil {
+			t.Fatalf("recv subscribed snapshot failed: %v", err)
+		}
+		if resp.GetServiceSnapshot() == nil {
+			t.Fatalf("expected subscribed snapshot")
+		}
+	}
+	drainSnapshot(ordersStream)
+	drainSnapshot(paymentsStream)
+
+	if err := srv.RefreshTracked(context.Background()); err != nil {
+		t.Fatalf("refresh tracked failed: %v", err)
+	}
+
+	recvService := func(stream controlv1.MeshControlPlaneService_ConnectClient) string {
+		deadline := time.After(time.Second)
+		for {
+			select {
+			case <-deadline:
+				t.Fatal("expected pushed snapshot")
+			default:
+			}
+			resp, err := stream.Recv()
+			if err != nil {
+				t.Fatalf("recv failed: %v", err)
+			}
+			if resp.GetServiceSnapshot() != nil {
+				return resp.GetServiceSnapshot().GetService().GetService()
+			}
+		}
+	}
+
+	if got, want := recvService(ordersStream), "orders"; got != want {
+		t.Fatalf("unexpected pushed service for orders subscriber: got=%s want=%s", got, want)
+	}
+	if got, want := recvService(paymentsStream), "payments"; got != want {
+		t.Fatalf("unexpected pushed service for payments subscriber: got=%s want=%s", got, want)
+	}
+}
+
 func TestServerBackgroundRefreshPushesTrackedSnapshots(t *testing.T) {
 	store := snapshot.NewStore()
 	loader := snapshot.NewLoader(

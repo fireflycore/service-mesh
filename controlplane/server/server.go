@@ -21,9 +21,15 @@ type Server struct {
 	loader *snapshot.Loader
 
 	mu             sync.RWMutex
-	subscribers    map[uint64]chan *controlv1.ConnectResponse
+	subscribers    map[uint64]*subscriber
 	trackedTargets map[string]model.ServiceRef
 	nextSubscriber uint64
+}
+
+type subscriber struct {
+	pushCh   chan *controlv1.ConnectResponse
+	identity *controlv1.DataplaneIdentity
+	targets  map[string]model.ServiceRef
 }
 
 // New 用给定的 snapshot store 创建控制面服务。
@@ -36,7 +42,7 @@ func NewWithLoader(store *snapshot.Store, loader *snapshot.Loader) *Server {
 	return &Server{
 		store:          store,
 		loader:         loader,
-		subscribers:    make(map[uint64]chan *controlv1.ConnectResponse),
+		subscribers:    make(map[uint64]*subscriber),
 		trackedTargets: make(map[string]model.ServiceRef),
 	}
 }
@@ -89,6 +95,7 @@ func (s *Server) Connect(stream grpc.BidiStreamingServer[controlv1.ConnectReques
 				if pushCh == nil {
 					subscriberID, pushCh = s.addSubscriber()
 				}
+				s.updateSubscriberIdentity(subscriberID, body.Register.GetIdentity())
 				if err := s.handleRegister(stream, body.Register); err != nil {
 					return err
 				}
@@ -97,11 +104,15 @@ func (s *Server) Connect(stream grpc.BidiStreamingServer[controlv1.ConnectReques
 					return err
 				}
 			case *controlv1.ConnectRequest_Subscribe:
-				if err := s.handleSubscribe(stream, body.Subscribe); err != nil {
+				if err := s.handleSubscribe(stream, subscriberID, body.Subscribe); err != nil {
 					return err
 				}
 			}
-		case resp := <-pushCh:
+		case resp, ok := <-pushCh:
+			if !ok {
+				pushCh = nil
+				continue
+			}
 			if resp == nil {
 				continue
 			}
@@ -154,7 +165,7 @@ func (s *Server) handleHeartbeat(stream grpc.BidiStreamingServer[controlv1.Conne
 	return nil
 }
 
-func (s *Server) handleSubscribe(stream grpc.BidiStreamingServer[controlv1.ConnectRequest, controlv1.ConnectResponse], subscribe *controlv1.TargetSubscription) error {
+func (s *Server) handleSubscribe(stream grpc.BidiStreamingServer[controlv1.ConnectRequest, controlv1.ConnectResponse], subscriberID uint64, subscribe *controlv1.TargetSubscription) error {
 	if subscribe == nil || len(subscribe.GetServices()) == 0 {
 		return nil
 	}
@@ -178,6 +189,7 @@ func (s *Server) handleSubscribe(stream grpc.BidiStreamingServer[controlv1.Conne
 	if len(targets) == 0 {
 		return nil
 	}
+	s.updateSubscriberTargets(subscriberID, targets)
 
 	changedKeys := make(map[string]struct{})
 	if s.loader != nil {
@@ -253,11 +265,17 @@ func (s *Server) RefreshTracked(ctx context.Context) error {
 		return err
 	}
 	for _, snapshot := range changed {
-		s.broadcast(&controlv1.ConnectResponse{
+		target := model.ServiceRef{
+			Service:   snapshot.GetService().GetService(),
+			Namespace: snapshot.GetService().GetNamespace(),
+			Env:       snapshot.GetService().GetEnv(),
+			Port:      snapshot.GetService().GetPort(),
+		}
+		s.broadcastForTarget(&controlv1.ConnectResponse{
 			Body: &controlv1.ConnectResponse_ServiceSnapshot{
 				ServiceSnapshot: snapshot,
 			},
-		})
+		}, target)
 	}
 	return nil
 }
@@ -290,7 +308,10 @@ func (s *Server) addSubscriber() (uint64, <-chan *controlv1.ConnectResponse) {
 	s.nextSubscriber++
 	id := s.nextSubscriber
 	ch := make(chan *controlv1.ConnectResponse, 16)
-	s.subscribers[id] = ch
+	s.subscribers[id] = &subscriber{
+		pushCh:  ch,
+		targets: make(map[string]model.ServiceRef),
+	}
 	return id, ch
 }
 
@@ -298,19 +319,26 @@ func (s *Server) removeSubscriber(id uint64) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
-	if ch, ok := s.subscribers[id]; ok {
+	if sub, ok := s.subscribers[id]; ok {
 		delete(s.subscribers, id)
-		close(ch)
+		close(sub.pushCh)
 	}
 }
 
 func (s *Server) broadcast(resp *controlv1.ConnectResponse) {
+	s.broadcastForTarget(resp, model.ServiceRef{})
+}
+
+func (s *Server) broadcastForTarget(resp *controlv1.ConnectResponse, target model.ServiceRef) {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 
 	for _, subscriber := range s.subscribers {
+		if !subscriber.shouldReceive(target) {
+			continue
+		}
 		select {
-		case subscriber <- resp:
+		case subscriber.pushCh <- resp:
 		default:
 		}
 	}
@@ -329,4 +357,48 @@ func (s *Server) trackedTargetList() []model.ServiceRef {
 
 func targetKey(target model.ServiceRef) string {
 	return target.Namespace + "/" + target.Env + "/" + target.Service
+}
+
+func (s *Server) updateSubscriberIdentity(id uint64, identity *controlv1.DataplaneIdentity) {
+	if id == 0 || identity == nil {
+		return
+	}
+
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	if subscriber, ok := s.subscribers[id]; ok {
+		subscriber.identity = identity
+	}
+}
+
+func (s *Server) updateSubscriberTargets(id uint64, targets []model.ServiceRef) {
+	if id == 0 || len(targets) == 0 {
+		return
+	}
+
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	subscriber, ok := s.subscribers[id]
+	if !ok {
+		return
+	}
+	for _, target := range targets {
+		subscriber.targets[targetKey(target)] = target
+	}
+}
+
+func (s *subscriber) shouldReceive(target model.ServiceRef) bool {
+	if s == nil {
+		return false
+	}
+	if strings.TrimSpace(target.Service) == "" {
+		return true
+	}
+	if len(s.targets) == 0 {
+		return true
+	}
+	_, ok := s.targets[targetKey(target)]
+	return ok
 }

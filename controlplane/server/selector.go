@@ -19,27 +19,60 @@ type resourceSelector struct {
 	requireIdentity     bool
 }
 
+type matchPriority uint8
+
+const (
+	matchPriorityNone matchPriority = iota
+	matchPriorityFallback
+	matchPriorityExact
+)
+
+type selectorMatch struct {
+	subscription matchPriority
+	identity     matchPriority
+}
+
 func matchesDataplaneIdentity(service *controlv1.ServiceRef, identity *controlv1.DataplaneIdentity) bool {
-	return matchesIdentityScope(service, identity)
+	return matchIdentityScope(service, identity) != matchPriorityNone
 }
 
 func matchesIdentityScope(service *controlv1.ServiceRef, identity *controlv1.DataplaneIdentity) bool {
-	if service == nil || identity == nil {
-		return true
-	}
-	if !matchesDimension(service.GetNamespace(), identity.GetNamespace()) {
-		return false
-	}
-	if !matchesDimension(service.GetEnv(), identity.GetEnv()) {
-		return false
-	}
-	return true
+	return matchIdentityScope(service, identity) != matchPriorityNone
 }
 
 func matchesDimension(serviceValue, identityValue string) bool {
+	return matchDimension(serviceValue, identityValue) != matchPriorityNone
+}
+
+func matchDimension(serviceValue, identityValue string) matchPriority {
 	serviceValue = strings.TrimSpace(serviceValue)
 	identityValue = strings.TrimSpace(identityValue)
-	return serviceValue == "" || identityValue == "" || serviceValue == identityValue
+	switch {
+	case serviceValue == "" || identityValue == "":
+		return matchPriorityFallback
+	case serviceValue == identityValue:
+		return matchPriorityExact
+	default:
+		return matchPriorityNone
+	}
+}
+
+func matchIdentityScope(service *controlv1.ServiceRef, identity *controlv1.DataplaneIdentity) matchPriority {
+	if service == nil || identity == nil {
+		return matchPriorityFallback
+	}
+	namespace := matchDimension(service.GetNamespace(), identity.GetNamespace())
+	if namespace == matchPriorityNone {
+		return matchPriorityNone
+	}
+	env := matchDimension(service.GetEnv(), identity.GetEnv())
+	if env == matchPriorityNone {
+		return matchPriorityNone
+	}
+	if namespace == matchPriorityExact && env == matchPriorityExact {
+		return matchPriorityExact
+	}
+	return matchPriorityFallback
 }
 
 func selectorFromResponse(resp *controlv1.ConnectResponse, fallbackTarget model.ServiceRef) resourceSelector {
@@ -105,13 +138,25 @@ func selectorFromSubscriber(subscriber *subscriber) subscriberSelector {
 }
 
 func matchesSelectors(subscriber subscriberSelector, resource resourceSelector) bool {
-	if resource.requireSubscription && !subscriber.acceptsTarget(resource.target) {
-		return false
+	return evaluateSelectorMatch(subscriber, resource).matched()
+}
+
+func evaluateSelectorMatch(subscriber subscriberSelector, resource resourceSelector) selectorMatch {
+	result := selectorMatch{
+		subscription: matchPriorityExact,
+		identity:     matchPriorityExact,
 	}
-	if resource.requireIdentity && !matchesIdentityScope(resource.service, subscriber.identity) {
-		return false
+	if resource.requireSubscription {
+		result.subscription = subscriber.matchTarget(resource.target)
 	}
-	return true
+	if resource.requireIdentity {
+		result.identity = matchIdentityScope(resource.service, subscriber.identity)
+	}
+	return result
+}
+
+func (m selectorMatch) matched() bool {
+	return m.subscription != matchPriorityNone && m.identity != matchPriorityNone
 }
 
 func toModelTarget(service *controlv1.ServiceRef) model.ServiceRef {
@@ -131,12 +176,18 @@ func (s *subscriber) shouldReceive(target model.ServiceRef) bool {
 }
 
 func (s subscriberSelector) acceptsTarget(target model.ServiceRef) bool {
+	return s.matchTarget(target) != matchPriorityNone
+}
+
+func (s subscriberSelector) matchTarget(target model.ServiceRef) matchPriority {
 	if strings.TrimSpace(target.Service) == "" {
-		return true
+		return matchPriorityFallback
 	}
 	if len(s.targets) == 0 {
-		return true
+		return matchPriorityFallback
 	}
-	_, ok := s.targets[targetKey(target)]
-	return ok
+	if _, ok := s.targets[targetKey(target)]; ok {
+		return matchPriorityExact
+	}
+	return matchPriorityNone
 }

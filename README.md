@@ -99,6 +99,7 @@ service
   - snapshot / route policy 下发判定已收敛到统一匹配层，减少后续规则漂移
   - snapshot / route policy / subscriber 的 selector 模型已显式化，后续下发规则更易扩展
   - matcher / selector 组件已从 server 主文件中拆出，便于后续继续扩规则而不堆积在 server.go
+  - matcher 已显式区分 exact / fallback 优先级，为后续更复杂命中顺序保留清晰语义
   - consul / etcd / ext_authz / telemetry 初始化等外部交互已补齐默认超时保护，避免缺环境时长时间挂起
 
 ## 设计原则

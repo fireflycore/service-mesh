@@ -692,6 +692,57 @@ func TestMatchesDeliveryUsesUnifiedSubscriptionAndIdentityRules(t *testing.T) {
 	}
 }
 
+func TestEvaluateSelectorMatchExposesExactAndFallbackPriority(t *testing.T) {
+	exactSubscriber := selectorFromSubscriber(&subscriber{
+		identity: &controlv1.DataplaneIdentity{
+			Namespace: "default",
+			Env:       "dev",
+		},
+		targets: map[string]model.ServiceRef{
+			"default/dev/orders": {
+				Service:   "orders",
+				Namespace: "default",
+				Env:       "dev",
+			},
+		},
+	})
+
+	exactMatch := evaluateSelectorMatch(exactSubscriber, resourceSelector{
+		target:              model.ServiceRef{Service: "orders", Namespace: "default", Env: "dev"},
+		service:             &controlv1.ServiceRef{Service: "orders", Namespace: "default", Env: "dev"},
+		requireSubscription: true,
+		requireIdentity:     true,
+	})
+	if exactMatch.subscription != matchPriorityExact {
+		t.Fatalf("expected exact subscription priority, got=%d", exactMatch.subscription)
+	}
+	if exactMatch.identity != matchPriorityExact {
+		t.Fatalf("expected exact identity priority, got=%d", exactMatch.identity)
+	}
+
+	fallbackSubscriber := selectorFromSubscriber(&subscriber{
+		identity: &controlv1.DataplaneIdentity{
+			Namespace: "default",
+			Env:       "dev",
+		},
+	})
+	fallbackMatch := evaluateSelectorMatch(fallbackSubscriber, resourceSelector{
+		target:              model.ServiceRef{Service: "orders", Namespace: "default", Env: "dev"},
+		service:             &controlv1.ServiceRef{Service: "orders", Namespace: "default"},
+		requireSubscription: true,
+		requireIdentity:     true,
+	})
+	if fallbackMatch.subscription != matchPriorityFallback {
+		t.Fatalf("expected fallback subscription priority, got=%d", fallbackMatch.subscription)
+	}
+	if fallbackMatch.identity != matchPriorityFallback {
+		t.Fatalf("expected fallback identity priority, got=%d", fallbackMatch.identity)
+	}
+	if !fallbackMatch.matched() {
+		t.Fatal("expected fallback match to still be considered matched")
+	}
+}
+
 func TestServerBackgroundRefreshPushesTrackedSnapshots(t *testing.T) {
 	store := snapshot.NewStore()
 	loader := snapshot.NewLoader(

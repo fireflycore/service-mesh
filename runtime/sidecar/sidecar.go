@@ -16,7 +16,7 @@ func New(cfg *config.Config) (*Runner, error) {
 		// sidecar 以“绑定某个本地业务实例”的模式运行。
 		Mode: "sidecar",
 		// sidecar 本地入口通常是容器或进程附近的 TCP 地址。
-		Listen: cfg.Runtime.Sidecar.Listen,
+		Address: cfg.Runtime.Sidecar.Address,
 		// 下面四个字段共同构成 sidecar 的本地服务身份。
 		ServiceName: cfg.Runtime.Sidecar.ServiceName,
 		InstanceID:  cfg.Runtime.Sidecar.InstanceID,

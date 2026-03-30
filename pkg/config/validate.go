@@ -12,17 +12,14 @@ import (
 func Validate(cfg Config) error {
 	switch cfg.Mode {
 	case model.ModeAgent:
-		// agent 只要求本地监听地址存在，其余容量参数允许走默认值。
-		if cfg.Runtime.Agent.Listen.Address == "" {
-			return errors.New("runtime.agent.listen.address is required")
+		// agent 只需要验证本地 TCP 地址是否存在。
+		if cfg.Runtime.Agent.Address == "" {
+			return errors.New("runtime.agent.address is required")
 		}
 	case model.ModeSidecar:
 		// sidecar 不仅要能监听，还必须知道自己绑定的是哪个本地服务。
-		if cfg.Runtime.Sidecar.Listen.Address == "" {
-			return errors.New("runtime.sidecar.listen.address is required")
-		}
-		if cfg.Runtime.Sidecar.Listen.Network != "tcp" {
-			return errors.New("runtime.sidecar.listen.network must be tcp")
+		if cfg.Runtime.Sidecar.Address == "" {
+			return errors.New("runtime.sidecar.address is required")
 		}
 		switch cfg.Runtime.Sidecar.TargetMode {
 		case model.SidecarTargetModeUpstreamOnly, model.SidecarTargetModeAllowSameService:

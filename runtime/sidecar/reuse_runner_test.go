@@ -28,8 +28,7 @@ func TestSidecarReusesInvokeRuntime(t *testing.T) {
 
 	cfg := config.Default()
 	cfg.Mode = model.ModeSidecar
-	cfg.Runtime.Sidecar.Listen.Network = "tcp"
-	cfg.Runtime.Sidecar.Listen.Address = address
+	cfg.Runtime.Sidecar.Address = address
 	cfg.Runtime.Sidecar.ServiceName = "config"
 	cfg.Runtime.Sidecar.InstanceID = "config-1"
 	cfg.Runtime.Sidecar.Namespace = "/microservice/lhdht"

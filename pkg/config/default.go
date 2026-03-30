@@ -14,20 +14,14 @@ func Default() Config {
 		Mode: model.ModeAgent,
 		Runtime: RuntimeConfig{
 			Agent: AgentRuntimeConfig{
-				Listen: ListenConfig{
-					// agent 默认优先使用 UDS，方便同机调用并减少端口暴露。
-					Network: "unix",
-					Address: "/var/run/service-mesh.sock",
-				},
+				// agent 默认使用本地 TCP 地址，和当前网格接入策略保持一致。
+				Address:     "127.0.0.1:19090",
 				WorkerCount: 4,
 				MaxInflight: 1024,
 			},
 			Sidecar: SidecarRuntimeConfig{
-				Listen: ListenConfig{
-					// sidecar 默认使用本地 TCP，便于容器内或进程内联调。
-					Network: "tcp",
-					Address: "127.0.0.1:19090",
-				},
+				// sidecar 默认使用本地 TCP 地址，便于容器内或进程内联调。
+				Address: "127.0.0.1:19090",
 				// 默认只允许 sidecar 代理“本地服务 -> 上游服务”。
 				TargetMode: model.SidecarTargetModeUpstreamOnly,
 				// 给 sidecar 一个最小占位服务名，避免配置完全缺失时无法 Normalize。

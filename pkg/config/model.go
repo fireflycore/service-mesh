@@ -42,8 +42,8 @@ type RuntimeConfig struct {
 
 // AgentRuntimeConfig 描述 agent 模式的监听与容量参数。
 type AgentRuntimeConfig struct {
-	// Listen 是 agent 对本机业务暴露的入口。
-	Listen ListenConfig `yaml:"listen"`
+	// Address 是 agent 对本机业务暴露的入口。
+	Address string `yaml:"address"`
 	// WorkerCount 预留给后续更复杂并发模型使用。
 	WorkerCount int `yaml:"worker_count"`
 	// MaxInflight 预留给后续限流/并发保护使用。
@@ -52,8 +52,8 @@ type AgentRuntimeConfig struct {
 
 // SidecarRuntimeConfig 描述 sidecar 模式绑定的本地服务身份。
 type SidecarRuntimeConfig struct {
-	// Listen 是 sidecar 的本地入口地址。
-	Listen ListenConfig `yaml:"listen"`
+	// Address 是 sidecar 的本地入口地址。
+	Address string `yaml:"address"`
 	// TargetMode 控制 sidecar 是否只代理上游服务，还是允许指向同名本地服务。
 	TargetMode string `yaml:"target_mode"`
 	// ServiceName 标识 sidecar 当前绑定的本地业务服务。
@@ -64,14 +64,6 @@ type SidecarRuntimeConfig struct {
 	Namespace string `yaml:"namespace"`
 	// Env 用于和目录/控制面下发的环境维度对齐。
 	Env string `yaml:"env"`
-}
-
-// ListenConfig 统一承载本地监听协议与地址。
-type ListenConfig struct {
-	// Network 典型值为 tcp 或 unix。
-	Network string `yaml:"network"`
-	// Address 是监听地址或 sock 文件路径。
-	Address string `yaml:"address"`
 }
 
 // SourceConfig 描述目录来源选择。

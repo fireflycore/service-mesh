@@ -17,13 +17,9 @@ func Normalize(cfg *Config) {
 	cfg.Mode = strings.TrimSpace(strings.ToLower(cfg.Mode))
 	cfg.Source.Kind = strings.TrimSpace(strings.ToLower(cfg.Source.Kind))
 
-	// network 也统一转小写，确保 "TCP" / "tcp" 最终行为一致。
-	cfg.Runtime.Agent.Listen.Network = strings.TrimSpace(strings.ToLower(cfg.Runtime.Agent.Listen.Network))
-	cfg.Runtime.Sidecar.Listen.Network = strings.TrimSpace(strings.ToLower(cfg.Runtime.Sidecar.Listen.Network))
-
 	// 其余字符串类配置做 trim，避免首尾空格造成隐蔽错误。
-	cfg.Runtime.Agent.Listen.Address = strings.TrimSpace(cfg.Runtime.Agent.Listen.Address)
-	cfg.Runtime.Sidecar.Listen.Address = strings.TrimSpace(cfg.Runtime.Sidecar.Listen.Address)
+	cfg.Runtime.Agent.Address = strings.TrimSpace(cfg.Runtime.Agent.Address)
+	cfg.Runtime.Sidecar.Address = strings.TrimSpace(cfg.Runtime.Sidecar.Address)
 	cfg.Runtime.Sidecar.TargetMode = strings.TrimSpace(strings.ToLower(cfg.Runtime.Sidecar.TargetMode))
 	cfg.Runtime.Sidecar.ServiceName = strings.TrimSpace(cfg.Runtime.Sidecar.ServiceName)
 	cfg.Runtime.Sidecar.InstanceID = strings.TrimSpace(cfg.Runtime.Sidecar.InstanceID)
@@ -69,14 +65,6 @@ func Normalize(cfg *Config) {
 		cfg.Source.Etcd.DialTimeoutMS = 1000
 	}
 	// 最后补齐字符串/切片默认值。
-	if cfg.Runtime.Agent.Listen.Network == "" {
-		// agent 默认走 unix，更适合同机共享入口。
-		cfg.Runtime.Agent.Listen.Network = "unix"
-	}
-	if cfg.Runtime.Sidecar.Listen.Network == "" {
-		// sidecar 默认走 tcp，更贴近容器/进程内本地代理习惯。
-		cfg.Runtime.Sidecar.Listen.Network = "tcp"
-	}
 	if cfg.Runtime.Sidecar.ServiceName == "" {
 		// service_name 缺省时给一个占位值，避免后续运行时装配拿到空字符串。
 		cfg.Runtime.Sidecar.ServiceName = "service-mesh-sidecar"

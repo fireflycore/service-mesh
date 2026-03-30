@@ -33,8 +33,8 @@ import (
 type Params struct {
 	// Mode 仅允许 agent / sidecar 两种值。
 	Mode string
-	// Listen 定义本地 dataplane 服务暴露在哪个地址。
-	Listen config.ListenConfig
+	// Address 定义本地 dataplane 服务暴露在哪个地址。
+	Address string
 	// ServiceName 决定注册到 controlplane 的逻辑服务名。
 	ServiceName string
 	// InstanceID 用于稳定标识单个 dataplane 实例。
@@ -174,8 +174,7 @@ func (r *Runner) Run(ctx context.Context) error {
 
 	attrs := []slog.Attr{
 		// 这些字段是所有模式都会打印的最小运行时身份。
-		slog.String("listen_network", r.params.Listen.Network),
-		slog.String("listen_address", r.params.Listen.Address),
+		slog.String("listen_address", r.params.Address),
 		slog.String("mode", r.params.Mode),
 	}
 	attrs = append(attrs, r.params.LogAttributes...)
@@ -228,17 +227,9 @@ func (r *Runner) runControlPlane(ctx context.Context) {
 
 // listen 根据当前 mode 的监听配置创建 listener。
 func (r *Runner) listen() (net.Listener, func(), error) {
-	network := r.params.Listen.Network
-	address := r.params.Listen.Address
+	address := r.params.Address
 
-	if network == "unix" {
-		// UDS 模式下清掉旧 sock，避免上次异常退出残留文件导致 bind 失败。
-		if err := os.RemoveAll(address); err != nil {
-			return nil, nil, err
-		}
-	}
-
-	listener, err := net.Listen(network, address)
+	listener, err := net.Listen("tcp", address)
 	if err != nil {
 		// bind 失败通常意味着地址占用、权限不足或 network/address 组合不合法。
 		return nil, nil, err
@@ -246,10 +237,6 @@ func (r *Runner) listen() (net.Listener, func(), error) {
 
 	cleanup := func() {
 		_ = listener.Close()
-		if network == "unix" {
-			// 正常退出时顺手清理 sock 文件，避免影响下一次启动。
-			_ = os.Remove(address)
-		}
 	}
 
 	return listener, cleanup, nil

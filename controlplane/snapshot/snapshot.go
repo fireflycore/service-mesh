@@ -69,6 +69,36 @@ func (s *Store) Lookup(service *controlv1.ServiceRef) (*controlv1.ServiceSnapsho
 	return s.snapshots[fallbackKey], s.routePolicies[fallbackKey]
 }
 
+// AllServiceSnapshots 返回当前 store 中所有服务快照的副本切片。
+func (s *Store) AllServiceSnapshots() []*controlv1.ServiceSnapshot {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+
+	result := make([]*controlv1.ServiceSnapshot, 0, len(s.snapshots))
+	for _, snapshot := range s.snapshots {
+		if snapshot == nil {
+			continue
+		}
+		result = append(result, snapshot)
+	}
+	return result
+}
+
+// AllRoutePolicies 返回当前 store 中所有路由策略的副本切片。
+func (s *Store) AllRoutePolicies() []*controlv1.RoutePolicy {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+
+	result := make([]*controlv1.RoutePolicy, 0, len(s.routePolicies))
+	for _, policy := range s.routePolicies {
+		if policy == nil {
+			continue
+		}
+		result = append(result, policy)
+	}
+	return result
+}
+
 // serviceKey 把 namespace / env / service 收敛成统一索引键。
 func serviceKey(service *controlv1.ServiceRef) string {
 	namespace := strings.TrimSpace(service.GetNamespace())

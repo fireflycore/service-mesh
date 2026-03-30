@@ -121,6 +121,8 @@ type ControlPlaneConfig struct {
 	Enabled bool `yaml:"enabled"`
 	// Target 是控制面的 gRPC 地址。
 	Target string `yaml:"target"`
+	// AllowSourceFallback 控制 dataplane 在控制面没有快照时是否允许直连 source。
+	AllowSourceFallback bool `yaml:"allow_source_fallback"`
 	// HeartbeatIntervalMS 控制 register 后的心跳频率。
 	HeartbeatIntervalMS uint64 `yaml:"heartbeat_interval_ms"`
 	// ConnectTimeoutMS 控制单次连接控制面的超时。

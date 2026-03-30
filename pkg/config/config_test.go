@@ -72,3 +72,11 @@ func TestNormalizeDefaultsSidecarTargetMode(t *testing.T) {
 		t.Fatalf("unexpected target_mode: got=%s want=%s", got, want)
 	}
 }
+
+func TestDefaultConfigDisablesSourceFallbackWhenControlPlaneEnabled(t *testing.T) {
+	cfg := Default()
+
+	if cfg.ControlPlane.AllowSourceFallback {
+		t.Fatal("expected controlplane source fallback to be disabled by default")
+	}
+}

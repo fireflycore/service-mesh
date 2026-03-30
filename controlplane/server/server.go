@@ -56,16 +56,9 @@ func (s *Server) handleRegister(stream grpc.BidiStreamingServer[controlv1.Connec
 		return nil
 	}
 
-	service := &controlv1.ServiceRef{
-		// 这里把 dataplane identity 收敛成 service 维度键，后续统一用来查快照/策略。
-		Service:   register.GetIdentity().GetService(),
-		Namespace: register.GetIdentity().GetNamespace(),
-		Env:       register.GetIdentity().GetEnv(),
-	}
-
-	serviceSnapshot, routePolicy := s.store.Lookup(service)
-	if serviceSnapshot != nil {
-		// 先发服务快照，让 dataplane 尽快拿到可路由实例列表。
+	for _, serviceSnapshot := range s.store.AllServiceSnapshots() {
+		// 第十四版开始，register 后优先回放控制面当前已知的全部快照，
+		// 让 dataplane 默认依赖 controlplane 状态，而不是本地直连 source。
 		if err := stream.Send(&controlv1.ConnectResponse{
 			Body: &controlv1.ConnectResponse_ServiceSnapshot{
 				ServiceSnapshot: serviceSnapshot,
@@ -74,8 +67,9 @@ func (s *Server) handleRegister(stream grpc.BidiStreamingServer[controlv1.Connec
 			return err
 		}
 	}
-	if routePolicy != nil {
-		// 再发路由策略，让 dataplane 能覆盖 timeout/retry 等行为。
+
+	for _, routePolicy := range s.store.AllRoutePolicies() {
+		// 路由策略和快照一样采用“全量当前状态回放”，保持 dataplane 本地视图完整。
 		if err := stream.Send(&controlv1.ConnectResponse{
 			Body: &controlv1.ConnectResponse_RoutePolicy{
 				RoutePolicy: routePolicy,

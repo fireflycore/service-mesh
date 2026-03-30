@@ -61,8 +61,10 @@ func Default() Config {
 		},
 		ControlPlane: ControlPlaneConfig{
 			// 控制面默认开启，便于一开始就验证 register / heartbeat 主链。
-			Enabled:             true,
-			Target:              "127.0.0.1:19080",
+			Enabled: true,
+			Target:  "127.0.0.1:19080",
+			// 第十四版开始默认走 control plane 主路径，本地 source 只保留显式降级时使用。
+			AllowSourceFallback: false,
 			HeartbeatIntervalMS: 3000,
 			ConnectTimeoutMS:    1000,
 		},

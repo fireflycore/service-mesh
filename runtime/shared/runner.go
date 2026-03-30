@@ -71,17 +71,13 @@ type Runner struct {
 // - controlplane client
 // - telemetry
 func New(cfg *config.Config, params Params) (*Runner, error) {
-	// 先根据配置选择底层目录实现，例如 consul 或 etcd。
-	provider, err := source.FromConfig(cfg.Source)
-	if err != nil {
-		// 这里失败通常意味着 source.kind 不合法，或 provider 初始化参数不足。
-		return nil, err
-	}
-
 	// controlplane client 一方面负责 register/heartbeat，
 	// 另一方面也把下发状态暴露给 dataplane 作为 overlay。
 	controlplaneClient := controlclient.New(cfg.ControlPlane)
-	provider = source.NewOverlay(provider, controlplaneClient.State())
+	provider, err := newProvider(cfg, controlplaneClient)
+	if err != nil {
+		return nil, err
+	}
 
 	// 当前鉴权统一走 ext_authz，shared runner 不区分 agent/sidecar。
 	authorizer, err := authz.NewExtAuthz(cfg.Authz)
@@ -140,6 +136,25 @@ func New(cfg *config.Config, params Params) (*Runner, error) {
 		telemetry:          telemetryProviders,
 		controlplaneClient: controlplaneClient,
 	}, nil
+}
+
+func newProvider(cfg *config.Config, controlplaneClient *controlclient.Client) (source.Provider, error) {
+	if !cfg.ControlPlane.Enabled {
+		// 控制面关闭时，dataplane 直接回到本地 source 路径。
+		return source.FromConfig(cfg.Source)
+	}
+
+	if cfg.ControlPlane.AllowSourceFallback {
+		// 开发态或显式降级态下，控制面未命中时允许回退到底层 source。
+		provider, err := source.FromConfig(cfg.Source)
+		if err != nil {
+			return nil, err
+		}
+		return source.NewOverlayWithFallback(provider, controlplaneClient.State(), true), nil
+	}
+
+	// 第十四版默认让 controlplane 成为主路径，source 直连不再是常规调用路径。
+	return source.NewOverlayWithFallback(nil, controlplaneClient.State(), false), nil
 }
 
 // Run 负责真正启动本地 gRPC dataplane。

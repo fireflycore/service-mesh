@@ -41,6 +41,17 @@ func TestClientReceivesSnapshotAndPolicy(t *testing.T) {
 		},
 		TimeoutMs: 1500,
 	})
+	store.PutServiceSnapshot(&controlv1.ServiceSnapshot{
+		Service: &controlv1.ServiceRef{
+			Service:   "payments",
+			Namespace: "default",
+			Env:       "dev",
+		},
+		Endpoints: []*controlv1.Endpoint{
+			{Address: "10.0.0.20", Port: 29090, Weight: 1},
+		},
+		Revision: "v2",
+	})
 
 	grpcServer := grpc.NewServer()
 	controlv1.RegisterMeshControlPlaneServiceServer(grpcServer, server.New(store))
@@ -72,7 +83,7 @@ func TestClientReceivesSnapshotAndPolicy(t *testing.T) {
 			Mode:        "agent",
 			NodeId:      "node-1",
 			Namespace:   "default",
-			Service:     "orders",
+			Service:     "service-mesh-agent",
 			Env:         "dev",
 		})
 	}()
@@ -106,6 +117,18 @@ func TestClientReceivesSnapshotAndPolicy(t *testing.T) {
 	}
 	if got, want := snapshotValue.Endpoints[0].Address, "10.0.0.10"; got != want {
 		t.Fatalf("unexpected snapshot address: got=%s want=%s", got, want)
+	}
+
+	paymentsSnapshot, ok := client.State().ResolveSnapshot(model.ServiceRef{
+		Service:   "payments",
+		Namespace: "default",
+		Env:       "dev",
+	})
+	if !ok {
+		t.Fatal("expected second service snapshot lookup to succeed")
+	}
+	if got, want := paymentsSnapshot.Endpoints[0].Address, "10.0.0.20"; got != want {
+		t.Fatalf("unexpected second snapshot address: got=%s want=%s", got, want)
 	}
 
 	// 除了缓存“最后一条消息”，client 还需要支持按 service 维度解析当前策略。

@@ -38,6 +38,17 @@ func TestServerConnectSendsSnapshotAndPolicy(t *testing.T) {
 		},
 		TimeoutMs: 1500,
 	})
+	store.PutServiceSnapshot(&controlv1.ServiceSnapshot{
+		Service: &controlv1.ServiceRef{
+			Service:   "payments",
+			Namespace: "default",
+			Env:       "dev",
+		},
+		Endpoints: []*controlv1.Endpoint{
+			{Address: "10.0.0.11", Port: 29090, Weight: 1},
+		},
+		Revision: "v2",
+	})
 
 	grpcServer := grpc.NewServer()
 	controlv1.RegisterMeshControlPlaneServiceServer(grpcServer, New(store))
@@ -68,7 +79,7 @@ func TestServerConnectSendsSnapshotAndPolicy(t *testing.T) {
 		t.Fatalf("connect failed: %v", err)
 	}
 
-	// register 后，服务端应该立刻回放当前服务对应的快照和策略。
+	// register 后，服务端应该立刻回放当前控制面已知的快照和策略。
 	if err := stream.Send(&controlv1.ConnectRequest{
 		Body: &controlv1.ConnectRequest_Register{
 			Register: &controlv1.DataplaneRegister{
@@ -77,7 +88,7 @@ func TestServerConnectSendsSnapshotAndPolicy(t *testing.T) {
 					Mode:        "agent",
 					NodeId:      "node-1",
 					Namespace:   "default",
-					Service:     "orders",
+					Service:     "service-mesh-agent",
 					Env:         "dev",
 				},
 			},
@@ -86,21 +97,27 @@ func TestServerConnectSendsSnapshotAndPolicy(t *testing.T) {
 		t.Fatalf("send register failed: %v", err)
 	}
 
-	first, err := stream.Recv()
-	if err != nil {
-		t.Fatalf("recv snapshot failed: %v", err)
+	var snapshotCount int
+	var policyCount int
+	for i := 0; i < 3; i++ {
+		resp, err := stream.Recv()
+		if err != nil {
+			t.Fatalf("recv replay response failed: %v", err)
+		}
+		if resp.GetServiceSnapshot() != nil {
+			snapshotCount++
+			continue
+		}
+		if resp.GetRoutePolicy() != nil {
+			policyCount++
+			continue
+		}
+		t.Fatalf("expected snapshot or route policy response")
 	}
-	// 按当前实现，第一条响应应该是 ServiceSnapshot。
-	if first.GetServiceSnapshot() == nil {
-		t.Fatalf("expected service snapshot response")
+	if got, want := snapshotCount, 2; got != want {
+		t.Fatalf("unexpected snapshot replay count: got=%d want=%d", got, want)
 	}
-
-	second, err := stream.Recv()
-	if err != nil {
-		t.Fatalf("recv route policy failed: %v", err)
-	}
-	// 第二条响应应该是 RoutePolicy，用于覆盖 invoke timeout/retry。
-	if second.GetRoutePolicy() == nil {
-		t.Fatalf("expected route policy response")
+	if got, want := policyCount, 1; got != want {
+		t.Fatalf("unexpected route policy replay count: got=%d want=%d", got, want)
 	}
 }

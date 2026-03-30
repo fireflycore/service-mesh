@@ -66,3 +66,44 @@ func TestOverlayUsesControlPlaneSnapshotFirst(t *testing.T) {
 		t.Fatalf("unexpected overlay endpoint: got=%s want=%s", got, want)
 	}
 }
+
+func TestOverlayReturnsSnapshotUnavailableWithoutFallback(t *testing.T) {
+	overlay := NewOverlayWithFallback(nil, fakeSnapshotResolver{}, false)
+
+	_, err := overlay.Resolve(context.Background(), model.ServiceRef{
+		Service:   "orders",
+		Namespace: "default",
+		Env:       "dev",
+	})
+	if err == nil {
+		t.Fatal("expected missing controlplane snapshot to fail")
+	}
+	if err != ErrControlPlaneSnapshotUnavailable {
+		t.Fatalf("unexpected error: %v", err)
+	}
+}
+
+func TestOverlayFallsBackToPrimaryWhenEnabled(t *testing.T) {
+	overlay := NewOverlayWithFallback(
+		fakeProvider{
+			snapshot: model.ServiceSnapshot{
+				Service:   model.ServiceRef{Service: "orders", Namespace: "default", Env: "dev"},
+				Endpoints: []model.Endpoint{{Address: "10.0.0.3", Port: 39090, Weight: 1}},
+			},
+		},
+		fakeSnapshotResolver{},
+		true,
+	)
+
+	snapshot, err := overlay.Resolve(context.Background(), model.ServiceRef{
+		Service:   "orders",
+		Namespace: "default",
+		Env:       "dev",
+	})
+	if err != nil {
+		t.Fatalf("resolve failed: %v", err)
+	}
+	if got, want := snapshot.Endpoints[0].Address, "10.0.0.3"; got != want {
+		t.Fatalf("unexpected fallback endpoint: got=%s want=%s", got, want)
+	}
+}

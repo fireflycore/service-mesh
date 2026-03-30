@@ -478,6 +478,177 @@ func TestServerRefreshTrackedPushesOnlyToSubscribedTargets(t *testing.T) {
 	}
 }
 
+func TestServerUpsertRoutePolicyPushesOnlyToMatchingSubscribers(t *testing.T) {
+	store := snapshot.NewStore()
+	store.PutServiceSnapshot(&controlv1.ServiceSnapshot{
+		Service: &controlv1.ServiceRef{
+			Service:   "orders",
+			Namespace: "default",
+			Env:       "dev",
+		},
+		Endpoints: []*controlv1.Endpoint{
+			{Address: "10.0.0.31", Port: 19090, Weight: 1},
+		},
+		Revision: "v1",
+	})
+	srv := New(store)
+
+	grpcServer := grpc.NewServer()
+	controlv1.RegisterMeshControlPlaneServiceServer(grpcServer, srv)
+
+	listener, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatalf("listen failed: %v", err)
+	}
+	defer listener.Close()
+
+	go func() {
+		_ = grpcServer.Serve(listener)
+	}()
+	defer grpcServer.Stop()
+
+	dial := func(identity *controlv1.DataplaneIdentity, timeout time.Duration) (controlv1.MeshControlPlaneService_ConnectClient, context.CancelFunc) {
+		conn, err := grpc.DialContext(
+			context.Background(),
+			listener.Addr().String(),
+			grpc.WithTransportCredentials(insecure.NewCredentials()),
+		)
+		if err != nil {
+			t.Fatalf("dial failed: %v", err)
+		}
+		t.Cleanup(func() { _ = conn.Close() })
+
+		streamCtx, cancelStream := context.WithTimeout(context.Background(), timeout)
+		stream, err := controlv1.NewMeshControlPlaneServiceClient(conn).Connect(streamCtx)
+		if err != nil {
+			t.Fatalf("connect failed: %v", err)
+		}
+		if err := stream.Send(&controlv1.ConnectRequest{
+			Body: &controlv1.ConnectRequest_Register{
+				Register: &controlv1.DataplaneRegister{
+					Identity: identity,
+				},
+			},
+		}); err != nil {
+			t.Fatalf("send register failed: %v", err)
+		}
+		return stream, cancelStream
+	}
+
+	devStream, cancelDev := dial(&controlv1.DataplaneIdentity{
+		DataplaneId: "dp-dev",
+		Mode:        "agent",
+		NodeId:      "node-dev",
+		Namespace:   "default",
+		Service:     "service-mesh-agent",
+		Env:         "dev",
+	}, 2*time.Second)
+	defer cancelDev()
+	defer devStream.CloseSend()
+	prodStream, cancelProd := dial(&controlv1.DataplaneIdentity{
+		DataplaneId: "dp-prod",
+		Mode:        "agent",
+		NodeId:      "node-prod",
+		Namespace:   "default",
+		Service:     "service-mesh-agent",
+		Env:         "prod",
+	}, 500*time.Millisecond)
+	defer cancelProd()
+	defer prodStream.CloseSend()
+
+	subscribeOrders := func(stream controlv1.MeshControlPlaneService_ConnectClient) {
+		if err := stream.Send(&controlv1.ConnectRequest{
+			Body: &controlv1.ConnectRequest_Subscribe{
+				Subscribe: &controlv1.TargetSubscription{
+					Services: []*controlv1.ServiceRef{{Service: "orders", Namespace: "default", Env: "dev"}},
+				},
+			},
+		}); err != nil {
+			t.Fatalf("subscribe orders failed: %v", err)
+		}
+	}
+	subscribeOrders(devStream)
+	subscribeOrders(prodStream)
+
+	drainSnapshot := func(stream controlv1.MeshControlPlaneService_ConnectClient) {
+		deadline := time.After(time.Second)
+		for {
+			resp, err := stream.Recv()
+			if err != nil {
+				t.Fatalf("recv snapshot failed: %v", err)
+			}
+			if resp.GetServiceSnapshot() != nil {
+				return
+			}
+			select {
+			case <-deadline:
+				t.Fatal("expected subscribed snapshot")
+			default:
+			}
+		}
+	}
+	drainSnapshot(devStream)
+	drainSnapshot(prodStream)
+
+	changed := srv.UpsertRoutePolicy(&controlv1.RoutePolicy{
+		Service: &controlv1.ServiceRef{
+			Service:   "orders",
+			Namespace: "default",
+			Env:       "dev",
+		},
+		Retry: &controlv1.RetryPolicy{
+			MaxAttempts:     3,
+			PerTryTimeoutMs: 700,
+		},
+		TimeoutMs: 2000,
+	})
+	if !changed {
+		t.Fatal("expected route policy upsert to be treated as change")
+	}
+
+	deadline := time.After(time.Second)
+	for {
+		resp, err := devStream.Recv()
+		if err != nil {
+			t.Fatalf("recv route policy failed: %v", err)
+		}
+		if resp.GetRoutePolicy() != nil {
+			if got, want := resp.GetRoutePolicy().GetTimeoutMs(), uint64(2000); got != want {
+				t.Fatalf("unexpected route policy timeout: got=%d want=%d", got, want)
+			}
+			break
+		}
+		select {
+		case <-deadline:
+			t.Fatal("expected route policy push")
+		default:
+		}
+	}
+
+	resultCh := make(chan *controlv1.ConnectResponse, 1)
+	errCh := make(chan error, 1)
+	go func() {
+		resp, err := prodStream.Recv()
+		if err != nil {
+			errCh <- err
+			return
+		}
+		resultCh <- resp
+	}()
+
+	select {
+	case resp := <-resultCh:
+		if resp.GetRoutePolicy() != nil {
+			t.Fatal("did not expect prod subscriber to receive dev route policy")
+		}
+	case err := <-errCh:
+		if err == nil {
+			t.Fatal("expected timeout or cancellation for prod subscriber")
+		}
+	case <-time.After(300 * time.Millisecond):
+	}
+}
+
 func TestServerBackgroundRefreshPushesTrackedSnapshots(t *testing.T) {
 	store := snapshot.NewStore()
 	loader := snapshot.NewLoader(

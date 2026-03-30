@@ -11,6 +11,7 @@ import (
 	"github.com/fireflycore/service-mesh/controlplane/snapshot"
 	"github.com/fireflycore/service-mesh/pkg/model"
 	"google.golang.org/grpc"
+	"google.golang.org/protobuf/proto"
 )
 
 // Server 是控制面的最小 gRPC 服务实现。
@@ -291,6 +292,28 @@ func (s *Server) TrackTarget(target model.ServiceRef) {
 	s.trackedTargets[targetKey(target)] = target
 }
 
+// UpsertRoutePolicy 写入或更新指定服务的路由策略，并按订阅目标/身份主动推送。
+func (s *Server) UpsertRoutePolicy(policy *controlv1.RoutePolicy) bool {
+	if policy == nil || policy.GetService() == nil {
+		return false
+	}
+
+	_, current := s.store.Lookup(policy.GetService())
+	if proto.Equal(current, policy) {
+		return false
+	}
+
+	s.store.PutRoutePolicy(policy)
+	target := model.ServiceRef{
+		Service:   policy.GetService().GetService(),
+		Namespace: policy.GetService().GetNamespace(),
+		Env:       policy.GetService().GetEnv(),
+		Port:      policy.GetService().GetPort(),
+	}
+	s.broadcastRoutePolicy(policy, target)
+	return true
+}
+
 // RefreshTracked 刷新当前已知目标集合，并把变化快照推给已连接 dataplane。
 func (s *Server) RefreshTracked(ctx context.Context) error {
 	if s.loader == nil {
@@ -369,6 +392,32 @@ func (s *Server) removeSubscriber(id uint64) {
 
 func (s *Server) broadcast(resp *controlv1.ConnectResponse) {
 	s.broadcastForTarget(resp, model.ServiceRef{})
+}
+
+func (s *Server) broadcastRoutePolicy(policy *controlv1.RoutePolicy, target model.ServiceRef) {
+	if policy == nil {
+		return
+	}
+
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+
+	for _, subscriber := range s.subscribers {
+		if !subscriber.shouldReceive(target) {
+			continue
+		}
+		if !matchesDataplaneIdentity(policy.GetService(), subscriber.identity) {
+			continue
+		}
+		select {
+		case subscriber.pushCh <- &controlv1.ConnectResponse{
+			Body: &controlv1.ConnectResponse_RoutePolicy{
+				RoutePolicy: policy,
+			},
+		}:
+		default:
+		}
+	}
 }
 
 func (s *Server) broadcastForTarget(resp *controlv1.ConnectResponse, target model.ServiceRef) {

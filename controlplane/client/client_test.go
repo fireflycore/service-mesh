@@ -322,8 +322,6 @@ func TestClientTrackTargetTriggersSubscribeAndSnapshotSync(t *testing.T) {
 			if got, want := snapshotValue.Endpoints[0].Address, "10.0.0.40"; got != want {
 				t.Fatalf("unexpected subscribed snapshot address: got=%s want=%s", got, want)
 			}
-			cancel()
-			break
 		}
 
 		policy, policyOK := client.State().ResolveRoutePolicy(model.ServiceRef{
@@ -335,13 +333,46 @@ func TestClientTrackTargetTriggersSubscribeAndSnapshotSync(t *testing.T) {
 			if got, want := policy.GetTimeoutMs(), uint64(1500); got != want {
 				t.Fatalf("unexpected subscribed route policy timeout: got=%d want=%d", got, want)
 			}
-			cancel()
 			break
 		}
 
 		select {
 		case <-deadline:
 			t.Fatal("expected subscribed snapshot and route policy to reach client state")
+		case <-time.After(20 * time.Millisecond):
+		}
+	}
+
+	if changed := srv.UpsertRoutePolicy(&controlv1.RoutePolicy{
+		Service: &controlv1.ServiceRef{
+			Service:   "orders",
+			Namespace: "default",
+			Env:       "dev",
+		},
+		Retry: &controlv1.RetryPolicy{
+			MaxAttempts:     4,
+			PerTryTimeoutMs: 800,
+		},
+		TimeoutMs: 2500,
+	}); !changed {
+		t.Fatal("expected route policy update to be broadcast")
+	}
+
+	updateDeadline := time.After(time.Second)
+	for {
+		policy, policyOK := client.State().ResolveRoutePolicy(model.ServiceRef{
+			Service:   "orders",
+			Namespace: "default",
+			Env:       "dev",
+		})
+		if policyOK && policy.GetTimeoutMs() == 2500 {
+			cancel()
+			break
+		}
+
+		select {
+		case <-updateDeadline:
+			t.Fatal("expected pushed route policy update to reach client state")
 		case <-time.After(20 * time.Millisecond):
 		}
 	}

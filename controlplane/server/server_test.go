@@ -3,6 +3,7 @@ package server
 import (
 	"context"
 	"net"
+	"sync"
 	"testing"
 	"time"
 
@@ -13,6 +14,30 @@ import (
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials/insecure"
 )
+
+type sequenceProvider struct {
+	mu        sync.Mutex
+	snapshots map[string][]model.ServiceSnapshot
+	counts    map[string]int
+}
+
+func (p *sequenceProvider) Name() string {
+	return "sequence"
+}
+
+func (p *sequenceProvider) Resolve(_ context.Context, target model.ServiceRef) (model.ServiceSnapshot, error) {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+
+	key := target.Namespace + "/" + target.Env + "/" + target.Service
+	versions := p.snapshots[key]
+	index := p.counts[key]
+	if index >= len(versions) {
+		index = len(versions) - 1
+	}
+	p.counts[key]++
+	return versions[index], nil
+}
 
 // TestServerConnectSendsSnapshotAndPolicy 验证 register 后会收到基础控制面状态。
 func TestServerConnectSendsSnapshotAndPolicy(t *testing.T) {
@@ -52,6 +77,29 @@ func TestServerConnectSendsSnapshotAndPolicy(t *testing.T) {
 		},
 		Revision: "v2",
 	})
+	store.PutServiceSnapshot(&controlv1.ServiceSnapshot{
+		Service: &controlv1.ServiceRef{
+			Service:   "orders",
+			Namespace: "default",
+			Env:       "prod",
+		},
+		Endpoints: []*controlv1.Endpoint{
+			{Address: "10.0.0.12", Port: 39090, Weight: 1},
+		},
+		Revision: "v3",
+	})
+	store.PutRoutePolicy(&controlv1.RoutePolicy{
+		Service: &controlv1.ServiceRef{
+			Service:   "orders",
+			Namespace: "default",
+			Env:       "prod",
+		},
+		Retry: &controlv1.RetryPolicy{
+			MaxAttempts:     3,
+			PerTryTimeoutMs: 700,
+		},
+		TimeoutMs: 2000,
+	})
 
 	grpcServer := grpc.NewServer()
 	controlv1.RegisterMeshControlPlaneServiceServer(grpcServer, New(store))
@@ -77,10 +125,13 @@ func TestServerConnectSendsSnapshotAndPolicy(t *testing.T) {
 	}
 	defer conn.Close()
 
-	stream, err := controlv1.NewMeshControlPlaneServiceClient(conn).Connect(context.Background())
+	streamCtx, cancelStream := context.WithTimeout(context.Background(), 2*time.Second)
+	defer cancelStream()
+	stream, err := controlv1.NewMeshControlPlaneServiceClient(conn).Connect(streamCtx)
 	if err != nil {
 		t.Fatalf("connect failed: %v", err)
 	}
+	defer stream.CloseSend()
 
 	// register 后，服务端应该立刻回放当前控制面已知的快照和策略。
 	if err := stream.Send(&controlv1.ConnectRequest{
@@ -173,10 +224,13 @@ func TestServerRefreshTrackedBroadcastsChangedSnapshot(t *testing.T) {
 	}
 	defer conn.Close()
 
-	stream, err := controlv1.NewMeshControlPlaneServiceClient(conn).Connect(context.Background())
+	streamCtx, cancelStream := context.WithTimeout(context.Background(), 2*time.Second)
+	defer cancelStream()
+	stream, err := controlv1.NewMeshControlPlaneServiceClient(conn).Connect(streamCtx)
 	if err != nil {
 		t.Fatalf("connect failed: %v", err)
 	}
+	defer stream.CloseSend()
 
 	if err := stream.Send(&controlv1.ConnectRequest{
 		Body: &controlv1.ConnectRequest_Register{
@@ -229,28 +283,47 @@ func TestServerRefreshTrackedPushesOnlyToSubscribedTargets(t *testing.T) {
 	store := snapshot.NewStore()
 	loader := snapshot.NewLoader(
 		store,
-		memory.New(map[string]model.ServiceSnapshot{
-			"default/dev/orders": {
-				Service: model.ServiceRef{
-					Service:   "orders",
-					Namespace: "default",
-					Env:       "dev",
+		&sequenceProvider{
+			snapshots: map[string][]model.ServiceSnapshot{
+				"default/dev/orders": {
+					{
+						Service: model.ServiceRef{
+							Service:   "orders",
+							Namespace: "default",
+							Env:       "dev",
+						},
+						Endpoints: []model.Endpoint{{Address: "10.0.0.31", Port: 19090, Weight: 1}},
+					},
+					{
+						Service: model.ServiceRef{
+							Service:   "orders",
+							Namespace: "default",
+							Env:       "dev",
+						},
+						Endpoints: []model.Endpoint{{Address: "10.0.0.41", Port: 19090, Weight: 1}},
+					},
 				},
-				Endpoints: []model.Endpoint{
-					{Address: "10.0.0.31", Port: 19090, Weight: 1},
+				"default/dev/payments": {
+					{
+						Service: model.ServiceRef{
+							Service:   "payments",
+							Namespace: "default",
+							Env:       "dev",
+						},
+						Endpoints: []model.Endpoint{{Address: "10.0.0.32", Port: 19091, Weight: 1}},
+					},
+					{
+						Service: model.ServiceRef{
+							Service:   "payments",
+							Namespace: "default",
+							Env:       "dev",
+						},
+						Endpoints: []model.Endpoint{{Address: "10.0.0.42", Port: 19091, Weight: 1}},
+					},
 				},
 			},
-			"default/dev/payments": {
-				Service: model.ServiceRef{
-					Service:   "payments",
-					Namespace: "default",
-					Env:       "dev",
-				},
-				Endpoints: []model.Endpoint{
-					{Address: "10.0.0.32", Port: 19091, Weight: 1},
-				},
-			},
-		}),
+			counts: make(map[string]int),
+		},
 	)
 	srv := NewWithLoader(store, loader)
 	srv.TrackTarget(model.ServiceRef{Service: "orders", Namespace: "default", Env: "dev"})
@@ -270,7 +343,7 @@ func TestServerRefreshTrackedPushesOnlyToSubscribedTargets(t *testing.T) {
 	}()
 	defer grpcServer.Stop()
 
-	dial := func() controlv1.MeshControlPlaneService_ConnectClient {
+	dial := func() (controlv1.MeshControlPlaneService_ConnectClient, context.CancelFunc) {
 		conn, err := grpc.DialContext(
 			context.Background(),
 			listener.Addr().String(),
@@ -281,7 +354,8 @@ func TestServerRefreshTrackedPushesOnlyToSubscribedTargets(t *testing.T) {
 		}
 		t.Cleanup(func() { _ = conn.Close() })
 
-		stream, err := controlv1.NewMeshControlPlaneServiceClient(conn).Connect(context.Background())
+		streamCtx, cancelStream := context.WithTimeout(context.Background(), 2*time.Second)
+		stream, err := controlv1.NewMeshControlPlaneServiceClient(conn).Connect(streamCtx)
 		if err != nil {
 			t.Fatalf("connect failed: %v", err)
 		}
@@ -301,11 +375,15 @@ func TestServerRefreshTrackedPushesOnlyToSubscribedTargets(t *testing.T) {
 		}); err != nil {
 			t.Fatalf("send register failed: %v", err)
 		}
-		return stream
+		return stream, cancelStream
 	}
 
-	ordersStream := dial()
-	paymentsStream := dial()
+	ordersStream, cancelOrders := dial()
+	defer cancelOrders()
+	defer ordersStream.CloseSend()
+	paymentsStream, cancelPayments := dial()
+	defer cancelPayments()
+	defer paymentsStream.CloseSend()
 
 	if err := ordersStream.Send(&controlv1.ConnectRequest{
 		Body: &controlv1.ConnectRequest_Subscribe{
@@ -326,45 +404,76 @@ func TestServerRefreshTrackedPushesOnlyToSubscribedTargets(t *testing.T) {
 		t.Fatalf("subscribe payments failed: %v", err)
 	}
 
-	drainSnapshot := func(stream controlv1.MeshControlPlaneService_ConnectClient) {
-		resp, err := stream.Recv()
-		if err != nil {
+	drainSnapshot := func(stream controlv1.MeshControlPlaneService_ConnectClient, expectedService string) {
+		recvCh := make(chan *controlv1.ConnectResponse, 1)
+		errCh := make(chan error, 1)
+		go func() {
+			resp, err := stream.Recv()
+			if err != nil {
+				errCh <- err
+				return
+			}
+			recvCh <- resp
+		}()
+		select {
+		case err := <-errCh:
 			t.Fatalf("recv subscribed snapshot failed: %v", err)
-		}
-		if resp.GetServiceSnapshot() == nil {
-			t.Fatalf("expected subscribed snapshot")
+		case resp := <-recvCh:
+			if resp.GetServiceSnapshot() == nil {
+				t.Fatalf("expected subscribed snapshot")
+			}
+			if got, want := resp.GetServiceSnapshot().GetService().GetService(), expectedService; got != want {
+				t.Fatalf("unexpected subscribed service: got=%s want=%s", got, want)
+			}
+		case <-time.After(time.Second):
+			t.Fatal("expected subscribed snapshot")
 		}
 	}
-	drainSnapshot(ordersStream)
-	drainSnapshot(paymentsStream)
+	drainSnapshot(ordersStream, "orders")
+	drainSnapshot(paymentsStream, "payments")
 
 	if err := srv.RefreshTracked(context.Background()); err != nil {
 		t.Fatalf("refresh tracked failed: %v", err)
 	}
 
-	recvService := func(stream controlv1.MeshControlPlaneService_ConnectClient) string {
-		deadline := time.After(time.Second)
-		for {
-			select {
-			case <-deadline:
-				t.Fatal("expected pushed snapshot")
-			default:
-			}
+	recvSnapshot := func(stream controlv1.MeshControlPlaneService_ConnectClient) *controlv1.ServiceSnapshot {
+		recvCh := make(chan *controlv1.ConnectResponse, 1)
+		errCh := make(chan error, 1)
+		go func() {
 			resp, err := stream.Recv()
 			if err != nil {
-				t.Fatalf("recv failed: %v", err)
+				errCh <- err
+				return
 			}
-			if resp.GetServiceSnapshot() != nil {
-				return resp.GetServiceSnapshot().GetService().GetService()
+			recvCh <- resp
+		}()
+		select {
+		case err := <-errCh:
+			t.Fatalf("recv failed: %v", err)
+		case resp := <-recvCh:
+			if resp.GetServiceSnapshot() == nil {
+				t.Fatalf("expected pushed snapshot")
 			}
+			return resp.GetServiceSnapshot()
+		case <-time.After(time.Second):
+			t.Fatal("expected pushed snapshot")
 		}
+		return nil
 	}
 
-	if got, want := recvService(ordersStream), "orders"; got != want {
+	ordersSnapshot := recvSnapshot(ordersStream)
+	if got, want := ordersSnapshot.GetService().GetService(), "orders"; got != want {
 		t.Fatalf("unexpected pushed service for orders subscriber: got=%s want=%s", got, want)
 	}
-	if got, want := recvService(paymentsStream), "payments"; got != want {
+	if got, want := ordersSnapshot.GetEndpoints()[0].GetAddress(), "10.0.0.41"; got != want {
+		t.Fatalf("unexpected orders snapshot address: got=%s want=%s", got, want)
+	}
+	paymentsSnapshot := recvSnapshot(paymentsStream)
+	if got, want := paymentsSnapshot.GetService().GetService(), "payments"; got != want {
 		t.Fatalf("unexpected pushed service for payments subscriber: got=%s want=%s", got, want)
+	}
+	if got, want := paymentsSnapshot.GetEndpoints()[0].GetAddress(), "10.0.0.42"; got != want {
+		t.Fatalf("unexpected payments snapshot address: got=%s want=%s", got, want)
 	}
 }
 
@@ -420,10 +529,13 @@ func TestServerBackgroundRefreshPushesTrackedSnapshots(t *testing.T) {
 	}
 	defer conn.Close()
 
-	stream, err := controlv1.NewMeshControlPlaneServiceClient(conn).Connect(context.Background())
+	streamCtx, cancelStream := context.WithTimeout(context.Background(), 2*time.Second)
+	defer cancelStream()
+	stream, err := controlv1.NewMeshControlPlaneServiceClient(conn).Connect(streamCtx)
 	if err != nil {
 		t.Fatalf("connect failed: %v", err)
 	}
+	defer stream.CloseSend()
 
 	if err := stream.Send(&controlv1.ConnectRequest{
 		Body: &controlv1.ConnectRequest_Register{

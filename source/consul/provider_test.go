@@ -2,7 +2,9 @@ package consul
 
 import (
 	"context"
+	"errors"
 	"testing"
+	"time"
 
 	"github.com/fireflycore/service-mesh/pkg/config"
 	"github.com/fireflycore/service-mesh/pkg/model"
@@ -10,12 +12,16 @@ import (
 )
 
 type fakeHealth struct {
-	rows []*api.ServiceEntry
-	err  error
+	rows  []*api.ServiceEntry
+	err   error
+	delay time.Duration
 }
 
 // Service 用固定返回值模拟 Consul Health API。
 func (f fakeHealth) Service(service, tag string, passingOnly bool, q *api.QueryOptions) ([]*api.ServiceEntry, *api.QueryMeta, error) {
+	if f.delay > 0 {
+		time.Sleep(f.delay)
+	}
 	return f.rows, &api.QueryMeta{}, f.err
 }
 
@@ -57,5 +63,27 @@ func TestProviderResolve(t *testing.T) {
 	}
 	if got, want := snapshot.Endpoints[0].Port, uint32(19090); got != want {
 		t.Fatalf("unexpected endpoint port: got=%d want=%d", got, want)
+	}
+}
+
+func TestProviderResolveHonorsQueryTimeout(t *testing.T) {
+	provider := &Provider{
+		Config: config.ConsulSourceConfig{
+			Address:        "127.0.0.1:8500",
+			QueryTimeoutMS: 20,
+		},
+		health: fakeHealth{
+			delay: 200 * time.Millisecond,
+		},
+	}
+
+	_, err := provider.Resolve(context.Background(), model.ServiceRef{
+		Service: "orders",
+	})
+	if err == nil {
+		t.Fatal("expected resolve timeout")
+	}
+	if !errors.Is(err, context.DeadlineExceeded) {
+		t.Fatalf("expected deadline exceeded, got: %v", err)
 	}
 }

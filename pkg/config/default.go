@@ -44,9 +44,10 @@ func Default() Config {
 			// 默认走 consul，是因为早期本地环境更常见。
 			Kind: model.SourceConsul,
 			Consul: ConsulSourceConfig{
-				Address:   "127.0.0.1:8500",
-				Namespace: "/microservice/lhdht",
-				Scheme:    "http",
+				Address:        "127.0.0.1:8500",
+				Namespace:      "/microservice/lhdht",
+				Scheme:         "http",
+				QueryTimeoutMS: 1000,
 			},
 			Etcd: EtcdSourceConfig{
 				Endpoints:     []string{"127.0.0.1:2379"},

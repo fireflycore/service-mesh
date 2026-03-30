@@ -83,6 +83,17 @@ func TestValidateAcceptsCrossScopeSameServiceTargetMode(t *testing.T) {
 	}
 }
 
+func TestNormalizeDefaultsConsulQueryTimeout(t *testing.T) {
+	cfg := Default()
+	cfg.Source.Consul.QueryTimeoutMS = 0
+
+	Normalize(&cfg)
+
+	if got, want := cfg.Source.Consul.QueryTimeoutMS, uint64(1000); got != want {
+		t.Fatalf("unexpected consul query timeout: got=%d want=%d", got, want)
+	}
+}
+
 func TestDefaultConfigDisablesSourceFallbackWhenControlPlaneEnabled(t *testing.T) {
 	cfg := Default()
 

@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"strings"
+	"time"
 
 	"github.com/fireflycore/service-mesh/pkg/config"
 	"github.com/fireflycore/service-mesh/pkg/model"
@@ -13,6 +14,11 @@ import (
 // healthService 抽象 Consul 健康查询能力，便于单元测试时替换。
 type healthService interface {
 	Service(service, tag string, passingOnly bool, q *api.QueryOptions) ([]*api.ServiceEntry, *api.QueryMeta, error)
+}
+
+type serviceResult struct {
+	rows []*api.ServiceEntry
+	err  error
 }
 
 // Provider 是第三版引入的真实 Consul source 实现。
@@ -61,13 +67,28 @@ func (p *Provider) Name() string {
 // - 只读取 passing 实例
 // - service 名直接使用 target.Service
 // - 如 Service.Address 为空，则回退 Node.Address
-func (p *Provider) Resolve(_ context.Context, target model.ServiceRef) (model.ServiceSnapshot, error) {
-	// 第三个参数 passingOnly=true，意味着只拿健康实例。
-	rows, _, err := p.health.Service(target.Service, "", true, &api.QueryOptions{
-		Datacenter: strings.TrimSpace(p.Config.Datacenter),
-	})
-	if err != nil {
-		return model.ServiceSnapshot{}, err
+func (p *Provider) Resolve(ctx context.Context, target model.ServiceRef) (model.ServiceSnapshot, error) {
+	queryCtx, cancel := p.queryContext(ctx)
+	defer cancel()
+
+	resultCh := make(chan serviceResult, 1)
+	go func() {
+		// 第三个参数 passingOnly=true，意味着只拿健康实例。
+		rows, _, err := p.health.Service(target.Service, "", true, &api.QueryOptions{
+			Datacenter: strings.TrimSpace(p.Config.Datacenter),
+		})
+		resultCh <- serviceResult{rows: rows, err: err}
+	}()
+
+	var rows []*api.ServiceEntry
+	select {
+	case <-queryCtx.Done():
+		return model.ServiceSnapshot{}, fmt.Errorf("consul query timeout for service %s: %w", target.Service, queryCtx.Err())
+	case result := <-resultCh:
+		if result.err != nil {
+			return model.ServiceSnapshot{}, result.err
+		}
+		rows = result.rows
 	}
 
 	snapshot := model.ServiceSnapshot{
@@ -90,6 +111,17 @@ func (p *Provider) Resolve(_ context.Context, target model.ServiceRef) (model.Se
 	}
 
 	return snapshot, nil
+}
+
+func (p *Provider) queryContext(parent context.Context) (context.Context, context.CancelFunc) {
+	timeout := time.Second
+	if p.Config.QueryTimeoutMS > 0 {
+		timeout = time.Duration(p.Config.QueryTimeoutMS) * time.Millisecond
+	}
+	if _, ok := parent.Deadline(); ok {
+		return context.WithCancel(parent)
+	}
+	return context.WithTimeout(parent, timeout)
 }
 
 // decodeEndpoint 从 Consul 的 ServiceEntry 中提取最小 endpoint 信息。

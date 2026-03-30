@@ -88,6 +88,8 @@ type ConsulSourceConfig struct {
 	Datacenter string `yaml:"datacenter"`
 	// Scheme 默认为 http，也可以切到 https。
 	Scheme string `yaml:"scheme"`
+	// QueryTimeoutMS 控制单次 Consul 目录查询的最长等待时间。
+	QueryTimeoutMS uint64 `yaml:"query_timeout_ms"`
 }
 
 // EtcdSourceConfig 描述 etcd 目录连接参数。

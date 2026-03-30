@@ -56,11 +56,15 @@ func (s *Server) Connect(stream grpc.BidiStreamingServer[controlv1.ConnectReques
 
 	recvCh := make(chan recvResult, 1)
 	go func() {
+		defer close(recvCh)
 		for {
 			req, err := stream.Recv()
-			recvCh <- recvResult{req: req, err: err}
+			select {
+			case recvCh <- recvResult{req: req, err: err}:
+			case <-stream.Context().Done():
+				return
+			}
 			if err != nil {
-				close(recvCh)
 				return
 			}
 		}
@@ -128,8 +132,12 @@ func (s *Server) handleRegister(stream grpc.BidiStreamingServer[controlv1.Connec
 	if register == nil || register.GetIdentity() == nil {
 		return nil
 	}
+	identity := register.GetIdentity()
 
 	for _, serviceSnapshot := range s.store.AllServiceSnapshots() {
+		if !matchesDataplaneIdentity(serviceSnapshot.GetService(), identity) {
+			continue
+		}
 		// 第十四版开始，register 后优先回放控制面当前已知的全部快照，
 		// 让 dataplane 默认依赖 controlplane 状态，而不是本地直连 source。
 		if err := stream.Send(&controlv1.ConnectResponse{
@@ -142,6 +150,9 @@ func (s *Server) handleRegister(stream grpc.BidiStreamingServer[controlv1.Connec
 	}
 
 	for _, routePolicy := range s.store.AllRoutePolicies() {
+		if !matchesDataplaneIdentity(routePolicy.GetService(), identity) {
+			continue
+		}
 		// 路由策略和快照一样采用“全量当前状态回放”，保持 dataplane 本地视图完整。
 		if err := stream.Send(&controlv1.ConnectResponse{
 			Body: &controlv1.ConnectResponse_RoutePolicy{
@@ -357,6 +368,25 @@ func (s *Server) trackedTargetList() []model.ServiceRef {
 
 func targetKey(target model.ServiceRef) string {
 	return target.Namespace + "/" + target.Env + "/" + target.Service
+}
+
+func matchesDataplaneIdentity(service *controlv1.ServiceRef, identity *controlv1.DataplaneIdentity) bool {
+	if service == nil || identity == nil {
+		return true
+	}
+	if !matchesDimension(service.GetNamespace(), identity.GetNamespace()) {
+		return false
+	}
+	if !matchesDimension(service.GetEnv(), identity.GetEnv()) {
+		return false
+	}
+	return true
+}
+
+func matchesDimension(serviceValue, identityValue string) bool {
+	serviceValue = strings.TrimSpace(serviceValue)
+	identityValue = strings.TrimSpace(identityValue)
+	return serviceValue == "" || identityValue == "" || serviceValue == identityValue
 }
 
 func (s *Server) updateSubscriberIdentity(id uint64, identity *controlv1.DataplaneIdentity) {

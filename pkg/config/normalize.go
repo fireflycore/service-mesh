@@ -64,6 +64,10 @@ func Normalize(cfg *Config) {
 	if cfg.Source.Etcd.DialTimeoutMS == 0 {
 		cfg.Source.Etcd.DialTimeoutMS = 1000
 	}
+	if cfg.Source.Consul.QueryTimeoutMS == 0 {
+		// Consul 查询默认也限定 1 秒，避免本地没起 Consul 时长时间挂住。
+		cfg.Source.Consul.QueryTimeoutMS = 1000
+	}
 	// 最后补齐字符串/切片默认值。
 	if cfg.Runtime.Sidecar.ServiceName == "" {
 		// service_name 缺省时给一个占位值，避免后续运行时装配拿到空字符串。

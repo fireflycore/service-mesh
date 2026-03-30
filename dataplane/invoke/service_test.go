@@ -495,3 +495,77 @@ func TestServiceUnaryInvokeAllowsSidecarSelfTargetWhenConfigured(t *testing.T) {
 		t.Fatalf("unexpected payload: got=%s want=%s", got, want)
 	}
 }
+
+func TestServiceUnaryInvokeAllowsCrossScopeSameServiceTarget(t *testing.T) {
+	svc := NewService(
+		authz.NewAllowAll(),
+		resolver.New(memory.New(map[string]model.ServiceSnapshot{
+			"/microservice/lhdht/prod/config": {
+				Service: model.ServiceRef{
+					Service:   "config",
+					Namespace: "/microservice/lhdht",
+					Env:       "prod",
+				},
+				Endpoints: []model.Endpoint{{Address: "127.0.0.1", Port: 8080, Weight: 1}},
+			},
+		}), balancer.NewRoundRobin()),
+		&fakeTransport{},
+		Options{
+			LocalIdentity: &LocalIdentity{
+				Service:    "config",
+				Namespace:  "/microservice/lhdht",
+				Env:        "dev",
+				TargetMode: model.SidecarTargetModeAllowCrossScopeSameService,
+			},
+		},
+	)
+
+	resp, err := svc.UnaryInvoke(context.Background(), &invokev1.UnaryInvokeRequest{
+		Target: &invokev1.ServiceRef{
+			Service: "config",
+			Env:     "prod",
+		},
+		Method:  "/acme.config.v1.ConfigService/GetConfig",
+		Payload: []byte("hello"),
+	})
+	if err != nil {
+		t.Fatalf("expected cross-scope same-service target to succeed: %v", err)
+	}
+	if got, want := string(resp.GetPayload()), "127.0.0.1:hello"; got != want {
+		t.Fatalf("unexpected payload: got=%s want=%s", got, want)
+	}
+}
+
+func TestServiceUnaryInvokeRejectsSameScopeTargetUnderCrossScopeMode(t *testing.T) {
+	svc := NewService(
+		authz.NewAllowAll(),
+		resolver.New(memory.New(nil), balancer.NewRoundRobin()),
+		&fakeTransport{},
+		Options{
+			LocalIdentity: &LocalIdentity{
+				Service:    "config",
+				Namespace:  "/microservice/lhdht",
+				Env:        "dev",
+				TargetMode: model.SidecarTargetModeAllowCrossScopeSameService,
+			},
+		},
+	)
+
+	_, err := svc.UnaryInvoke(context.Background(), &invokev1.UnaryInvokeRequest{
+		Target: &invokev1.ServiceRef{
+			Service: "config",
+		},
+		Method: "/acme.config.v1.ConfigService/GetConfig",
+	})
+	if err == nil {
+		t.Fatal("expected same-scope target to fail under cross-scope mode")
+	}
+
+	statusErr, ok := status.FromError(err)
+	if !ok {
+		t.Fatalf("expected grpc status error: %v", err)
+	}
+	if statusErr.Code() != codes.InvalidArgument {
+		t.Fatalf("unexpected status code: %s", statusErr.Code())
+	}
+}

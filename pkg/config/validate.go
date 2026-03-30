@@ -22,9 +22,9 @@ func Validate(cfg Config) error {
 			return errors.New("runtime.sidecar.address is required")
 		}
 		switch cfg.Runtime.Sidecar.TargetMode {
-		case model.SidecarTargetModeUpstreamOnly, model.SidecarTargetModeAllowSameService:
+		case model.SidecarTargetModeUpstreamOnly, model.SidecarTargetModeAllowSameService, model.SidecarTargetModeAllowCrossScopeSameService:
 		default:
-			return errors.New("runtime.sidecar.target_mode must be upstream_only or allow_same_service")
+			return errors.New("runtime.sidecar.target_mode must be upstream_only, allow_same_service or allow_cross_scope_same_service")
 		}
 		if cfg.Runtime.Sidecar.ServiceName == "" {
 			return errors.New("runtime.sidecar.service_name is required")

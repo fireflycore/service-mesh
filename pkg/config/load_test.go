@@ -1,10 +1,19 @@
 package config
 
-import "testing"
+import (
+	"path/filepath"
+	"runtime"
+	"testing"
+)
+
+func testdataPath(name string) string {
+	_, file, _, _ := runtime.Caller(0)
+	return filepath.Join(filepath.Dir(file), "..", "..", "testdata", name)
+}
 
 func TestLoadReadsFlatAgentAddress(t *testing.T) {
 	cfg, err := Load(LoadOptions{
-		Path: "..\\..\\testdata\\agent.yaml",
+		Path: testdataPath("agent.yaml"),
 	})
 	if err != nil {
 		t.Fatalf("load agent config failed: %v", err)
@@ -17,7 +26,7 @@ func TestLoadReadsFlatAgentAddress(t *testing.T) {
 
 func TestLoadReadsFlatSidecarAddress(t *testing.T) {
 	cfg, err := Load(LoadOptions{
-		Path: "..\\..\\testdata\\sidecar.yaml",
+		Path: testdataPath("sidecar.yaml"),
 	})
 	if err != nil {
 		t.Fatalf("load sidecar config failed: %v", err)

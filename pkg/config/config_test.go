@@ -73,6 +73,16 @@ func TestNormalizeDefaultsSidecarTargetMode(t *testing.T) {
 	}
 }
 
+func TestValidateAcceptsCrossScopeSameServiceTargetMode(t *testing.T) {
+	cfg := Default()
+	cfg.Mode = model.ModeSidecar
+	cfg.Runtime.Sidecar.TargetMode = model.SidecarTargetModeAllowCrossScopeSameService
+
+	if err := Validate(cfg); err != nil {
+		t.Fatalf("expected cross-scope same-service target_mode to be valid: %v", err)
+	}
+}
+
 func TestDefaultConfigDisablesSourceFallbackWhenControlPlaneEnabled(t *testing.T) {
 	cfg := Default()
 

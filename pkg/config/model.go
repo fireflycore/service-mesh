@@ -54,7 +54,7 @@ type AgentRuntimeConfig struct {
 type SidecarRuntimeConfig struct {
 	// Address 是 sidecar 的本地入口地址。
 	Address string `yaml:"address"`
-	// TargetMode 控制 sidecar 是否只代理上游服务，还是允许指向同名本地服务。
+	// TargetMode 控制 sidecar 是否只代理上游服务，还是允许同名目标在特定范围内放行。
 	TargetMode string `yaml:"target_mode"`
 	// ServiceName 标识 sidecar 当前绑定的本地业务服务。
 	ServiceName string `yaml:"service_name"`

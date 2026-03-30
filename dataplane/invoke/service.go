@@ -443,8 +443,11 @@ func validateSidecarTarget(target model.ServiceRef, identity *LocalIdentity) err
 	if identity == nil {
 		return nil
 	}
-	if strings.TrimSpace(identity.TargetMode) == model.SidecarTargetModeAllowSameService {
+	switch strings.TrimSpace(identity.TargetMode) {
+	case model.SidecarTargetModeAllowSameService:
 		return nil
+	case model.SidecarTargetModeAllowCrossScopeSameService:
+		return validateCrossScopeSameServiceTarget(target, identity)
 	}
 
 	targetService := strings.TrimSpace(target.Service)
@@ -462,6 +465,27 @@ func validateSidecarTarget(target model.ServiceRef, identity *LocalIdentity) err
 		return nil
 	}
 	return errors.New("target conflicts with sidecar local service identity")
+}
+
+func validateCrossScopeSameServiceTarget(target model.ServiceRef, identity *LocalIdentity) error {
+	targetService := strings.TrimSpace(target.Service)
+	identityService := strings.TrimSpace(identity.Service)
+	if targetService == "" || identityService == "" || targetService != identityService {
+		return nil
+	}
+
+	targetNamespace := strings.TrimSpace(target.Namespace)
+	targetEnv := strings.TrimSpace(target.Env)
+	localNamespace := strings.TrimSpace(identity.Namespace)
+	localEnv := strings.TrimSpace(identity.Env)
+
+	if targetNamespace != "" && localNamespace != "" && targetNamespace != localNamespace {
+		return nil
+	}
+	if targetEnv != "" && localEnv != "" && targetEnv != localEnv {
+		return nil
+	}
+	return errors.New("target conflicts with sidecar local service identity under cross-scope target mode")
 }
 
 // normalizeLocalIdentity 统一修整 sidecar 本地身份字段。

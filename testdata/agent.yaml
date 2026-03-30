@@ -2,9 +2,7 @@ mode: agent
 
 runtime:
   agent:
-    listen:
-      network: unix
-      address: /tmp/service-mesh.sock
+    address: 127.0.0.1:19090
 
 source:
   kind: consul

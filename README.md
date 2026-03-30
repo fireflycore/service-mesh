@@ -76,6 +76,14 @@ service
   - sidecar 不再接受指向本地绑定服务身份的目标
   - sidecar 更明确地只承担“本地服务 -> 上游服务”的代理边界
   - sidecar 通过 `target_mode` 显式声明目标策略，默认 `upstream_only`
+- 第十四版当前范围已完成：
+  - control plane 成为 dataplane 默认主路径
+  - control plane 开启时默认不再回退本地 source
+  - register 后 dataplane 默认消费控制面当前已知的全量快照与策略
+- 第十五版当前范围已完成首轮：
+  - control plane 具备最小 source cache loader
+  - source 快照进入 control plane store 后可生成递增 revision
+  - 为后续 watch / 增量更新保留 `pull + cache` 基础链路
 
 ## 设计原则
 

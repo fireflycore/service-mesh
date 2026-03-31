@@ -104,6 +104,7 @@ service
   - 主动推送路径也开始复用 exact / fallback 裁决，避免 fallback 资源覆盖 exact 订阅者
   - resource arbitration 入口已统一化，register / subscribe / 主动推送开始复用同一套候选裁决模型
   - arbitration cache 已引入，减少同一轮 register / subscribe / push 中的重复裁决构造成本
+  - delivery cycle 上下文已承接 target 级裁决，subscribe / push 进一步从 server 主流程下沉
   - consul / etcd / ext_authz / telemetry 初始化等外部交互已补齐默认超时保护，避免缺环境时长时间挂起
 
 ## 设计原则

@@ -199,9 +199,7 @@ func (s *Server) handleSubscribe(stream grpc.BidiStreamingServer[controlv1.Conne
 	}
 	s.updateSubscriberTargets(subscriberID, targets)
 	subscriber := s.lookupSubscriber(subscriberID)
-	selector := selectorFromSubscriber(subscriber)
 	cycle := newDeliveryCycle(s.store)
-	arbitrator := cycle.ForIdentity(selector.identity)
 
 	changedKeys := make(map[string]struct{})
 	if s.loader != nil {
@@ -229,7 +227,7 @@ func (s *Server) handleSubscribe(stream grpc.BidiStreamingServer[controlv1.Conne
 	for _, target := range targets {
 		if _, ok := changedKeys[targetKey(target)]; ok {
 		} else {
-			snapshot := arbitrator.SnapshotForTarget(target)
+			snapshot := cycle.SnapshotForSubscriberTarget(subscriber, target)
 			if snapshot != nil {
 				if err := stream.Send(&controlv1.ConnectResponse{
 					Body: &controlv1.ConnectResponse_ServiceSnapshot{
@@ -241,11 +239,8 @@ func (s *Server) handleSubscribe(stream grpc.BidiStreamingServer[controlv1.Conne
 			}
 		}
 
-		policy := arbitrator.PolicyForTarget(target)
+		policy := cycle.PolicyForSubscriberTarget(subscriber, target)
 		if policy == nil {
-			continue
-		}
-		if !matchesSelectors(selector, selectorFromRoutePolicy(policy, target, true)) {
 			continue
 		}
 		key := targetKey(model.ServiceRef{
@@ -393,10 +388,7 @@ func (s *Server) broadcastRoutePolicy(policy *controlv1.RoutePolicy, target mode
 
 	cycle := newDeliveryCycle(s.store)
 	for _, subscriber := range s.subscribers {
-		if !matchesSelectors(selectorFromSubscriber(subscriber), selectorFromRoutePolicy(policy, target, true)) {
-			continue
-		}
-		if !cycle.AllowsPolicy(subscriber, policy) {
+		if !cycle.AllowsTargetPolicy(subscriber, policy, target) {
 			continue
 		}
 		select {
@@ -411,16 +403,12 @@ func (s *Server) broadcastRoutePolicy(policy *controlv1.RoutePolicy, target mode
 }
 
 func (s *Server) broadcastForTarget(resp *controlv1.ConnectResponse, target model.ServiceRef) {
-	resource := selectorFromResponse(resp, target)
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 
 	cycle := newDeliveryCycle(s.store)
 	for _, subscriber := range s.subscribers {
-		if !matchesSelectors(selectorFromSubscriber(subscriber), resource) {
-			continue
-		}
-		if !cycle.AllowsResponse(subscriber, resp) {
+		if !cycle.AllowsTargetResponse(subscriber, resp, target) {
 			continue
 		}
 		select {

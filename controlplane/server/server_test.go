@@ -916,6 +916,73 @@ func TestDeliveryCycleReusesCachedArbitrationAcrossAccessors(t *testing.T) {
 	}
 }
 
+func TestDeliveryCycleResolvesTargetScopedSnapshotAndPolicyForSubscriber(t *testing.T) {
+	store := snapshot.NewStore()
+	store.PutServiceSnapshot(&controlv1.ServiceSnapshot{
+		Service: &controlv1.ServiceRef{
+			Service:   "orders",
+			Namespace: "default",
+		},
+		Endpoints: []*controlv1.Endpoint{
+			{Address: "10.0.0.9", Port: 18090, Weight: 1},
+		},
+	})
+	store.PutServiceSnapshot(&controlv1.ServiceSnapshot{
+		Service: &controlv1.ServiceRef{
+			Service:   "orders",
+			Namespace: "default",
+			Env:       "dev",
+		},
+		Endpoints: []*controlv1.Endpoint{
+			{Address: "10.0.0.10", Port: 19090, Weight: 1},
+		},
+	})
+	store.PutRoutePolicy(&controlv1.RoutePolicy{
+		Service: &controlv1.ServiceRef{
+			Service:   "orders",
+			Namespace: "default",
+		},
+		TimeoutMs: 900,
+	})
+	store.PutRoutePolicy(&controlv1.RoutePolicy{
+		Service: &controlv1.ServiceRef{
+			Service:   "orders",
+			Namespace: "default",
+			Env:       "dev",
+		},
+		TimeoutMs: 1500,
+	})
+
+	cycle := newDeliveryCycle(store)
+	sub := &subscriber{
+		identity: &controlv1.DataplaneIdentity{
+			Namespace: "default",
+			Env:       "dev",
+		},
+		targets: map[string]model.ServiceRef{
+			"default/dev/orders": {
+				Service:   "orders",
+				Namespace: "default",
+				Env:       "dev",
+			},
+		},
+	}
+	target := model.ServiceRef{
+		Service:   "orders",
+		Namespace: "default",
+		Env:       "dev",
+	}
+
+	snapshot := cycle.SnapshotForSubscriberTarget(sub, target)
+	if snapshot == nil || snapshot.GetEndpoints()[0].GetAddress() != "10.0.0.10" {
+		t.Fatal("expected target-scoped snapshot lookup to choose exact candidate")
+	}
+	policy := cycle.PolicyForSubscriberTarget(sub, target)
+	if policy == nil || policy.GetTimeoutMs() != 1500 {
+		t.Fatal("expected target-scoped policy lookup to choose exact candidate")
+	}
+}
+
 func TestServerShouldPushFallbackPolicyOnlyWhenItIsBestCandidate(t *testing.T) {
 	store := snapshot.NewStore()
 	fallbackPolicy := &controlv1.RoutePolicy{

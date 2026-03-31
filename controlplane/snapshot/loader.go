@@ -14,6 +14,13 @@ type Loader struct {
 	provider source.Provider
 }
 
+type WatchUpdate struct {
+	Target   model.ServiceRef
+	Snapshot *controlv1.ServiceSnapshot
+	Deleted  bool
+	Changed  bool
+}
+
 // NewLoader 创建一个最小 source -> controlplane store 同步器。
 func NewLoader(store *Store, provider source.Provider) *Loader {
 	return &Loader{
@@ -50,4 +57,72 @@ func (l *Loader) RefreshMany(ctx context.Context, targets []model.ServiceRef) ([
 		}
 	}
 	return changed, nil
+}
+
+// Watch 启动单个目标的 source watch，并把事件桥接到 controlplane store。
+func (l *Loader) Watch(ctx context.Context, target model.ServiceRef) (<-chan WatchUpdate, error) {
+	watchProvider, ok := l.provider.(source.WatchCapable)
+	if !ok {
+		return nil, nil
+	}
+
+	stream, err := watchProvider.Watch(ctx, target)
+	if err != nil {
+		return nil, err
+	}
+
+	updates := make(chan WatchUpdate, 8)
+	go func() {
+		defer close(updates)
+		defer stream.Close()
+
+		for {
+			select {
+			case <-ctx.Done():
+				return
+			case event, ok := <-stream.Events():
+				if !ok {
+					return
+				}
+
+				update := l.applyWatchEvent(event)
+				if !update.Changed {
+					continue
+				}
+
+				select {
+				case updates <- update:
+				case <-ctx.Done():
+					return
+				}
+			}
+		}
+	}()
+
+	return updates, nil
+}
+
+func (l *Loader) applyWatchEvent(event source.WatchEvent) WatchUpdate {
+	if l == nil || l.store == nil {
+		return WatchUpdate{}
+	}
+
+	switch event.Kind {
+	case source.WatchEventDelete:
+		deleted := l.store.DeleteServiceSnapshot(event.Target)
+		return WatchUpdate{
+			Target:  event.Target,
+			Deleted: deleted,
+			Changed: deleted,
+		}
+	case source.WatchEventUpsert:
+		snapshot, changed := l.store.PutModelSnapshot(event.Snapshot)
+		return WatchUpdate{
+			Target:   event.Snapshot.Service,
+			Snapshot: snapshot,
+			Changed:  changed,
+		}
+	default:
+		return WatchUpdate{}
+	}
 }

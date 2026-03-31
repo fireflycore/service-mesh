@@ -112,6 +112,7 @@ service
   - delivery batch 已开始内聚 response / delivery 追加逻辑，为后续 builder / planner 继续演进打底
   - subscribe response 与 target broadcast plan 已直接由 batch builder 构造，`server.go` 进一步退回调度职责
   - batch builder 已补齐集合追加与 push response 入口，旧的零散 helper 继续收口
+  - source watch 抽象已落地，memory provider 与 controlplane loader 已具备最小 watch bridge
   - consul / etcd / ext_authz / telemetry 初始化等外部交互已补齐默认超时保护，避免缺环境时长时间挂起
 
 ## 设计原则

@@ -51,6 +51,28 @@ func (s *Store) PutRoutePolicy(policy *controlv1.RoutePolicy) {
 	s.routePolicies[serviceKey(policy.GetService())] = policy
 }
 
+// DeleteServiceSnapshot 按目标服务删除已有快照。
+func (s *Store) DeleteServiceSnapshot(target model.ServiceRef) bool {
+	if strings.TrimSpace(target.Service) == "" {
+		return false
+	}
+
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	key := serviceKey(&controlv1.ServiceRef{
+		Service:   target.Service,
+		Namespace: target.Namespace,
+		Env:       target.Env,
+		Port:      target.Port,
+	})
+	if _, ok := s.snapshots[key]; !ok {
+		return false
+	}
+	delete(s.snapshots, key)
+	return true
+}
+
 // PutModelSnapshot 把 source 层内部快照转换为控制面 proto 快照并写入 store。
 func (s *Store) PutModelSnapshot(snapshot model.ServiceSnapshot) (*controlv1.ServiceSnapshot, bool) {
 	if strings.TrimSpace(snapshot.Service.Service) == "" {

@@ -75,6 +75,7 @@
 - register / subscribe replay 也开始输出 snapshot / route policy 的 exact / fallback 命中统计
 - explain 统计也开始进入 controlplane telemetry 指标出口
 - target push 已开始输出 subscriber 级 decision trace 摘要，便于直接排查投递命中路径
+- decision trace 已按 subscriber 稳定排序，并输出 trace_total / trace_shown，避免排障结果漂移
 
 ### 第三优先级：M18 最小观测补强
 

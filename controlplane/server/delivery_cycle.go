@@ -1,6 +1,8 @@
 package server
 
 import (
+	"sort"
+
 	controlv1 "github.com/fireflycore/service-mesh/.gen/proto/acme/control/v1"
 	"github.com/fireflycore/service-mesh/controlplane/snapshot"
 	"github.com/fireflycore/service-mesh/pkg/model"
@@ -172,7 +174,7 @@ func (d deliveryCycle) TargetBroadcastBatch(subscribers map[uint64]*subscriber, 
 	}
 
 	builder := newDeliveryBatchBuilder(0, len(subscribers))
-	for _, subscriber := range subscribers {
+	for _, subscriber := range orderedSubscribers(subscribers) {
 		if subscriber == nil || subscriber.pushCh == nil {
 			continue
 		}
@@ -189,7 +191,7 @@ func (d deliveryCycle) ExplainTargetResponse(subscribers map[uint64]*subscriber,
 		responseKind: responseKind(resp),
 		target:       target,
 	}
-	for _, subscriber := range subscribers {
+	for _, subscriber := range orderedSubscribers(subscribers) {
 		if subscriber == nil || subscriber.pushCh == nil {
 			continue
 		}
@@ -248,4 +250,22 @@ func subscriberDataplaneID(subscriber *subscriber) string {
 		return ""
 	}
 	return subscriber.identity.GetDataplaneId()
+}
+
+func orderedSubscribers(subscribers map[uint64]*subscriber) []*subscriber {
+	if len(subscribers) == 0 {
+		return nil
+	}
+	ids := make([]uint64, 0, len(subscribers))
+	for id := range subscribers {
+		ids = append(ids, id)
+	}
+	sort.Slice(ids, func(i, j int) bool {
+		return ids[i] < ids[j]
+	})
+	ordered := make([]*subscriber, 0, len(ids))
+	for _, id := range ids {
+		ordered = append(ordered, subscribers[id])
+	}
+	return ordered
 }

@@ -437,6 +437,8 @@ func (s *Server) broadcastForTarget(resp *controlv1.ConnectResponse, target mode
 		slog.Int("denied_subscription", summary.deniedSubscription),
 		slog.Int("denied_identity", summary.deniedIdentity),
 		slog.Int("denied_arbitration", summary.deniedArbitration),
+		slog.Int("trace_total", len(summary.trace)),
+		slog.Int("trace_shown", summary.traceShownCount(8)),
 		slog.String("trace", summary.traceString(8)),
 	)
 	s.recordPushExplain(summary)

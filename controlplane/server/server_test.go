@@ -2090,8 +2090,20 @@ func TestDeliveryCycleExplainTargetResponse(t *testing.T) {
 	if got, want := summary.trace[0].decision, "delivered"; got != want {
 		t.Fatalf("unexpected first trace decision: got=%s want=%s", got, want)
 	}
+	if got, want := summary.trace[0].dataplaneID, "dp-1"; got != want {
+		t.Fatalf("unexpected first trace dataplane: got=%s want=%s", got, want)
+	}
 	if got, want := summary.trace[1].decision, "denied_subscription"; got != want {
 		t.Fatalf("unexpected second trace decision: got=%s want=%s", got, want)
+	}
+	if got, want := summary.trace[1].dataplaneID, "dp-2"; got != want {
+		t.Fatalf("unexpected second trace dataplane: got=%s want=%s", got, want)
+	}
+	if got, want := summary.traceShownCount(1), 1; got != want {
+		t.Fatalf("unexpected trace shown count: got=%d want=%d", got, want)
+	}
+	if got, want := summary.traceShownCount(8), 2; got != want {
+		t.Fatalf("unexpected full trace shown count: got=%d want=%d", got, want)
 	}
 	if got := summary.traceString(2); got == "" {
 		t.Fatal("expected trace string to be populated")

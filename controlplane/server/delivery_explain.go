@@ -59,6 +59,16 @@ func (s deliveryExplainSummary) traceString(limit int) string {
 	return strings.Join(parts, ";")
 }
 
+func (s deliveryExplainSummary) traceShownCount(limit int) int {
+	if len(s.trace) == 0 || limit == 0 {
+		return 0
+	}
+	if limit < 0 || limit > len(s.trace) {
+		return len(s.trace)
+	}
+	return limit
+}
+
 func responseKind(resp *controlv1.ConnectResponse) string {
 	switch {
 	case resp == nil:

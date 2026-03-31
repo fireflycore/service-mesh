@@ -1968,7 +1968,7 @@ func TestServerBackgroundWatchRestartsAfterWatchStreamCloses(t *testing.T) {
 	store := snapshot.NewStore()
 	loader := snapshot.NewLoader(store, provider)
 	updates := make(chan snapshot.WatchUpdate, 1)
-	manager := newWatchManager(loader, func(update snapshot.WatchUpdate) {
+	manager := newWatchManager(loader, nil, func(update snapshot.WatchUpdate) {
 		select {
 		case updates <- update:
 		default:

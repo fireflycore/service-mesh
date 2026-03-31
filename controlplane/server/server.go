@@ -3,12 +3,14 @@ package server
 import (
 	"context"
 	"io"
+	"log/slog"
 	"strings"
 	"sync"
 	"time"
 
 	controlv1 "github.com/fireflycore/service-mesh/.gen/proto/acme/control/v1"
 	"github.com/fireflycore/service-mesh/controlplane/snapshot"
+	controltelemetry "github.com/fireflycore/service-mesh/controlplane/telemetry"
 	"github.com/fireflycore/service-mesh/pkg/model"
 	"google.golang.org/grpc"
 	"google.golang.org/protobuf/proto"
@@ -18,8 +20,9 @@ import (
 type Server struct {
 	controlv1.UnimplementedMeshControlPlaneServiceServer
 
-	store  *snapshot.Store
-	loader *snapshot.Loader
+	store     *snapshot.Store
+	loader    *snapshot.Loader
+	telemetry *controltelemetry.Emitter
 
 	mu             sync.RWMutex
 	subscribers    map[uint64]*subscriber
@@ -44,10 +47,12 @@ func NewWithLoader(store *snapshot.Store, loader *snapshot.Loader) *Server {
 	srv := &Server{
 		store:          store,
 		loader:         loader,
+		telemetry:      controltelemetry.NewEmitter(),
 		subscribers:    make(map[uint64]*subscriber),
 		trackedTargets: make(map[string]model.ServiceRef),
 	}
-	srv.watchManager = newWatchManager(loader, func(update snapshot.WatchUpdate) {
+	srv.watchManager = newWatchManager(loader, srv.telemetry, func(update snapshot.WatchUpdate) {
+		srv.telemetry.RecordWatchUpdate(context.Background(), update)
 		target := update.Target
 		if update.Snapshot != nil {
 			if strings.TrimSpace(target.Service) == "" && update.Snapshot.GetService() != nil {
@@ -58,10 +63,25 @@ func NewWithLoader(store *snapshot.Store, loader *snapshot.Loader) *Server {
 					Port:      update.Snapshot.GetService().GetPort(),
 				}
 			}
+			if update.Snapshot.GetStatus() == controlv1.SnapshotStatus_SNAPSHOT_STATUS_STALE ||
+				update.Snapshot.GetStatus() == controlv1.SnapshotStatus_SNAPSHOT_STATUS_DEGRADED {
+				slog.Warn("controlplane snapshot status changed",
+					slog.String("service", target.Service),
+					slog.String("namespace", target.Namespace),
+					slog.String("env", target.Env),
+					slog.String("status", update.Snapshot.GetStatus().String()),
+					slog.String("reason", update.Snapshot.GetStatusReason()),
+				)
+			}
 			srv.broadcastForTarget(snapshotResponse(update.Snapshot), target)
 			return
 		}
 		if update.Deleted && strings.TrimSpace(target.Service) != "" {
+			slog.Info("controlplane snapshot deleted",
+				slog.String("service", target.Service),
+				slog.String("namespace", target.Namespace),
+				slog.String("env", target.Env),
+			)
 			srv.broadcastForTarget(snapshotDeletedResponse(&controlv1.ServiceSnapshotDeleted{
 				Service: &controlv1.ServiceRef{
 					Service:   target.Service,

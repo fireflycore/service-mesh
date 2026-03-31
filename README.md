@@ -121,6 +121,7 @@ service
   - dataplane 已显式消费 `stale / degraded`：stale 可继续路由，degraded 会拒绝调用或回退原始 source
   - polling watch 已支持 `stale -> degraded` 升级，watch manager 也开始具备自动重建能力
   - source watch 的 degraded 阈值已支持按 provider 配置，watch 错误原因也开始带上统一分类
+  - controlplane 已开始为 watch restart 与 snapshot status / reason class 输出最小观测出口
   - consul / etcd / ext_authz / telemetry 初始化等外部交互已补齐默认超时保护，避免缺环境时长时间挂起
 
 ## 设计原则
@@ -162,11 +163,13 @@ buf generate
 
 当前设计文档位于：
 
-- [design/mesh/README.md](file:///Users/lhdht/product/lhdht/backend/design/mesh/README.md)
+- [design/mesh/README.md](../../lhdht/backend/design/mesh/README.md)
 
 推荐先看：
 
-- [service-mesh-plan.md](file:///Users/lhdht/product/lhdht/backend/design/mesh/service-mesh-plan.md)
-- [service-mesh-component-design.md](file:///Users/lhdht/product/lhdht/backend/design/mesh/service-mesh-component-design.md)
-- [service-mesh-proto-contract.md](file:///Users/lhdht/product/lhdht/backend/design/mesh/service-mesh-proto-contract.md)
-- [service-mesh-mvp-decisions.md](file:///Users/lhdht/product/lhdht/backend/design/mesh/service-mesh-mvp-decisions.md)
+- [service-mesh-plan.md](../../lhdht/backend/design/mesh/service-mesh-plan.md)
+- [service-mesh-component-design.md](../../lhdht/backend/design/mesh/service-mesh-component-design.md)
+- [service-mesh-proto-contract.md](../../lhdht/backend/design/mesh/service-mesh-proto-contract.md)
+- [service-mesh-mvp-decisions.md](../../lhdht/backend/design/mesh/service-mesh-mvp-decisions.md)
+- [MODULES.md](./MODULES.md)
+- [CURRENT_STATE_AND_PLAN.md](./CURRENT_STATE_AND_PLAN.md)

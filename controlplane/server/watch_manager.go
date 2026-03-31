@@ -2,16 +2,19 @@ package server
 
 import (
 	"context"
+	"log/slog"
 	"strings"
 	"sync"
 	"time"
 
 	"github.com/fireflycore/service-mesh/controlplane/snapshot"
+	controltelemetry "github.com/fireflycore/service-mesh/controlplane/telemetry"
 	"github.com/fireflycore/service-mesh/pkg/model"
 )
 
 type watchManager struct {
 	loader   *snapshot.Loader
+	telemetry *controltelemetry.Emitter
 	onUpdate func(snapshot.WatchUpdate)
 
 	mu      sync.Mutex
@@ -21,11 +24,12 @@ type watchManager struct {
 
 const watchRestartBackoff = 200 * time.Millisecond
 
-func newWatchManager(loader *snapshot.Loader, onUpdate func(snapshot.WatchUpdate)) *watchManager {
+func newWatchManager(loader *snapshot.Loader, telemetry *controltelemetry.Emitter, onUpdate func(snapshot.WatchUpdate)) *watchManager {
 	return &watchManager{
-		loader:   loader,
-		onUpdate: onUpdate,
-		active:   make(map[string]context.CancelFunc),
+		loader:    loader,
+		telemetry: telemetry,
+		onUpdate:  onUpdate,
+		active:    make(map[string]context.CancelFunc),
 	}
 }
 
@@ -114,6 +118,14 @@ func (m *watchManager) Track(target model.ServiceRef) {
 			if !restart {
 				continue
 			}
+			if m.telemetry != nil {
+				m.telemetry.RecordWatchRestart(watchCtx, target.Service)
+			}
+			slog.Warn("controlplane watch restarting",
+				slog.String("service", target.Service),
+				slog.String("namespace", target.Namespace),
+				slog.String("env", target.Env),
+			)
 			if !waitWatchRestart(watchCtx) {
 				return
 			}

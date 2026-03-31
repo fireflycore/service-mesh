@@ -115,7 +115,9 @@ func (p *Provider) Resolve(ctx context.Context, target model.ServiceRef) (model.
 }
 
 func (p *Provider) Watch(ctx context.Context, target model.ServiceRef) (watchapi.Stream, error) {
-	return watchapi.RunPolling(ctx, durationFromQueryMS(p.Config.QueryTimeoutMS), target, func(ctx context.Context) (model.ServiceSnapshot, bool, error) {
+	return watchapi.RunPollingWithOptions(ctx, durationFromQueryMS(p.Config.QueryTimeoutMS), target, watchapi.PollingOptions{
+		DegradeAfterConsecutiveErrors: int(p.Config.WatchDegradeAfterErrors),
+	}, func(ctx context.Context) (model.ServiceSnapshot, bool, error) {
 		snapshot, err := p.Resolve(ctx, target)
 		if err != nil {
 			return model.ServiceSnapshot{}, false, err

@@ -90,6 +90,8 @@ type ConsulSourceConfig struct {
 	Scheme string `yaml:"scheme"`
 	// QueryTimeoutMS 控制单次 Consul 目录查询的最长等待时间。
 	QueryTimeoutMS uint64 `yaml:"query_timeout_ms"`
+	// WatchDegradeAfterErrors 控制连续 watch 查询失败多少次后把快照升级为 degraded。
+	WatchDegradeAfterErrors uint32 `yaml:"watch_degrade_after_errors"`
 }
 
 // EtcdSourceConfig 描述 etcd 目录连接参数。
@@ -105,6 +107,8 @@ type EtcdSourceConfig struct {
 	DialTimeoutMS uint64 `yaml:"dial_timeout_ms"`
 	// QueryTimeoutMS 控制单次 etcd 目录查询的最长等待时间。
 	QueryTimeoutMS uint64 `yaml:"query_timeout_ms"`
+	// WatchDegradeAfterErrors 控制连续 watch 查询失败多少次后把快照升级为 degraded。
+	WatchDegradeAfterErrors uint32 `yaml:"watch_degrade_after_errors"`
 }
 
 // AuthzConfig 描述 ext_authz 连接与失败策略。

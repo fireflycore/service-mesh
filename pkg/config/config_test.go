@@ -105,6 +105,28 @@ func TestNormalizeDefaultsEtcdQueryTimeout(t *testing.T) {
 	}
 }
 
+func TestNormalizeDefaultsConsulWatchDegradeAfterErrors(t *testing.T) {
+	cfg := Default()
+	cfg.Source.Consul.WatchDegradeAfterErrors = 0
+
+	Normalize(&cfg)
+
+	if got, want := cfg.Source.Consul.WatchDegradeAfterErrors, uint32(3); got != want {
+		t.Fatalf("unexpected consul watch degrade threshold: got=%d want=%d", got, want)
+	}
+}
+
+func TestNormalizeDefaultsEtcdWatchDegradeAfterErrors(t *testing.T) {
+	cfg := Default()
+	cfg.Source.Etcd.WatchDegradeAfterErrors = 0
+
+	Normalize(&cfg)
+
+	if got, want := cfg.Source.Etcd.WatchDegradeAfterErrors, uint32(3); got != want {
+		t.Fatalf("unexpected etcd watch degrade threshold: got=%d want=%d", got, want)
+	}
+}
+
 func TestDefaultConfigDisablesSourceFallbackWhenControlPlaneEnabled(t *testing.T) {
 	cfg := Default()
 

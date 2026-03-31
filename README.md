@@ -120,6 +120,7 @@ service
   - snapshot status 已支持 `current / stale / degraded`，为 source 不可达时的降级语义打底
   - dataplane 已显式消费 `stale / degraded`：stale 可继续路由，degraded 会拒绝调用或回退原始 source
   - polling watch 已支持 `stale -> degraded` 升级，watch manager 也开始具备自动重建能力
+  - source watch 的 degraded 阈值已支持按 provider 配置，watch 错误原因也开始带上统一分类
   - consul / etcd / ext_authz / telemetry 初始化等外部交互已补齐默认超时保护，避免缺环境时长时间挂起
 
 ## 设计原则

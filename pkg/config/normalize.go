@@ -68,9 +68,15 @@ func Normalize(cfg *Config) {
 		// etcd 查询默认也限定 1 秒，避免 controlplane refresh 或 invoke 解析长期等待。
 		cfg.Source.Etcd.QueryTimeoutMS = 1000
 	}
+	if cfg.Source.Etcd.WatchDegradeAfterErrors == 0 {
+		cfg.Source.Etcd.WatchDegradeAfterErrors = 3
+	}
 	if cfg.Source.Consul.QueryTimeoutMS == 0 {
 		// Consul 查询默认也限定 1 秒，避免本地没起 Consul 时长时间挂住。
 		cfg.Source.Consul.QueryTimeoutMS = 1000
+	}
+	if cfg.Source.Consul.WatchDegradeAfterErrors == 0 {
+		cfg.Source.Consul.WatchDegradeAfterErrors = 3
 	}
 	// 最后补齐字符串/切片默认值。
 	if cfg.Runtime.Sidecar.ServiceName == "" {

@@ -2,7 +2,10 @@ package watchapi
 
 import (
 	"context"
+	"errors"
+	"fmt"
 	"reflect"
+	"strings"
 	"time"
 
 	"github.com/fireflycore/service-mesh/pkg/model"
@@ -10,11 +13,29 @@ import (
 
 type SnapshotPoller func(context.Context) (model.ServiceSnapshot, bool, error)
 
-const defaultDegradeAfterConsecutiveErrors = 3
+const (
+	defaultDegradeAfterConsecutiveErrors = 3
+	ErrorClassNotFound                   = "not_found"
+	ErrorClassTimeout                    = "timeout"
+	ErrorClassUnavailable                = "unavailable"
+	ErrorClassInternal                   = "internal"
+)
+
+type PollingOptions struct {
+	DegradeAfterConsecutiveErrors int
+}
 
 func RunPolling(ctx context.Context, interval time.Duration, target model.ServiceRef, poll SnapshotPoller) Stream {
+	return RunPollingWithOptions(ctx, interval, target, PollingOptions{}, poll)
+}
+
+func RunPollingWithOptions(ctx context.Context, interval time.Duration, target model.ServiceRef, options PollingOptions, poll SnapshotPoller) Stream {
 	if interval <= 0 {
 		interval = time.Second
+	}
+	degradeAfter := options.DegradeAfterConsecutiveErrors
+	if degradeAfter <= 0 {
+		degradeAfter = defaultDegradeAfterConsecutiveErrors
 	}
 
 	stream := newPollingStream()
@@ -33,13 +54,14 @@ func RunPolling(ctx context.Context, interval time.Duration, target model.Servic
 			snapshot, found, err := poll(ctx)
 			if err != nil {
 				consecutiveErrors++
-				if consecutiveErrors >= defaultDegradeAfterConsecutiveErrors {
+				reason := formatPollingErrorReason(err)
+				if consecutiveErrors >= degradeAfter {
 					degraded := current
 					if !hasCurrent {
 						degraded = model.ServiceSnapshot{Service: target}
 					}
 					degraded.Status = model.SnapshotStatusDegraded
-					degraded.StatusReason = err.Error()
+					degraded.StatusReason = reason
 					if !hasEmitted || !reflect.DeepEqual(emitted, degraded) {
 						emitted = degraded
 						hasEmitted = true
@@ -54,7 +76,7 @@ func RunPolling(ctx context.Context, interval time.Duration, target model.Servic
 				if hasCurrent {
 					stale := current
 					stale.Status = model.SnapshotStatusStale
-					stale.StatusReason = err.Error()
+					stale.StatusReason = reason
 					if !hasEmitted || !reflect.DeepEqual(emitted, stale) {
 						emitted = stale
 						hasEmitted = true
@@ -110,6 +132,26 @@ func RunPolling(ctx context.Context, interval time.Duration, target model.Servic
 	}()
 
 	return stream
+}
+
+func formatPollingErrorReason(err error) string {
+	if err == nil {
+		return ""
+	}
+	return fmt.Sprintf("class=%s error=%s", classifyPollingError(err), strings.TrimSpace(err.Error()))
+}
+
+func classifyPollingError(err error) string {
+	switch {
+	case err == nil:
+		return ErrorClassInternal
+	case errors.Is(err, context.DeadlineExceeded):
+		return ErrorClassTimeout
+	case errors.Is(err, context.Canceled):
+		return ErrorClassUnavailable
+	default:
+		return ErrorClassUnavailable
+	}
 }
 
 type pollingStream struct {

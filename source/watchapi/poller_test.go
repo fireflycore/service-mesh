@@ -115,10 +115,12 @@ func TestRunPollingEscalatesToDegradedAfterRepeatedErrors(t *testing.T) {
 	defer cancel()
 
 	var state int
-	stream := RunPolling(ctx, 10*time.Millisecond, model.ServiceRef{
+	stream := RunPollingWithOptions(ctx, 10*time.Millisecond, model.ServiceRef{
 		Service:   "orders",
 		Namespace: "default",
 		Env:       "dev",
+	}, PollingOptions{
+		DegradeAfterConsecutiveErrors: 2,
 	}, func(context.Context) (model.ServiceSnapshot, bool, error) {
 		switch state {
 		case 0:
@@ -160,10 +162,45 @@ func TestRunPollingEscalatesToDegradedAfterRepeatedErrors(t *testing.T) {
 		if got, want := event.Snapshot.Status, model.SnapshotStatusDegraded; got != want {
 			t.Fatalf("unexpected degraded snapshot status: got=%s want=%s", got, want)
 		}
-		if event.Snapshot.StatusReason == "" {
-			t.Fatal("expected degraded snapshot reason")
+		if got, want := event.Snapshot.StatusReason, "class=unavailable error=registry unavailable"; got != want {
+			t.Fatalf("unexpected degraded snapshot reason: got=%s want=%s", got, want)
 		}
 	case <-time.After(time.Second):
 		t.Fatal("expected degraded polling upsert event")
+	}
+}
+
+func TestRunPollingFormatsTimeoutReason(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	stream := RunPolling(ctx, 10*time.Millisecond, model.ServiceRef{
+		Service:   "orders",
+		Namespace: "default",
+		Env:       "dev",
+	}, func(context.Context) (model.ServiceSnapshot, bool, error) {
+		return model.ServiceSnapshot{
+			Service: model.ServiceRef{
+				Service:   "orders",
+				Namespace: "default",
+				Env:       "dev",
+			},
+			Endpoints: []model.Endpoint{
+				{Address: "10.0.0.10", Port: 19090, Weight: 1},
+			},
+		}, true, nil
+	})
+	defer stream.Close()
+
+	select {
+	case <-stream.Events():
+	case <-time.After(time.Second):
+		t.Fatal("expected initial upsert event")
+	}
+
+	cancel()
+	_ = formatPollingErrorReason(context.DeadlineExceeded)
+	if got, want := formatPollingErrorReason(context.DeadlineExceeded), "class=timeout error=context deadline exceeded"; got != want {
+		t.Fatalf("unexpected timeout error reason: got=%s want=%s", got, want)
 	}
 }

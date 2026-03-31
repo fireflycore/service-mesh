@@ -1048,6 +1048,123 @@ func TestDeliveryCycleSubscribeHelpersHideChangedSnapshotAndDeduplicatePolicy(t 
 	}
 }
 
+func TestDeliveryCycleSubscribeResponsesBuildExpectedStreamPayloads(t *testing.T) {
+	store := snapshot.NewStore()
+	store.PutRoutePolicy(&controlv1.RoutePolicy{
+		Service: &controlv1.ServiceRef{
+			Service:   "orders",
+			Namespace: "default",
+			Env:       "dev",
+		},
+		TimeoutMs: 1500,
+	})
+
+	cycle := newDeliveryCycle(store)
+	sub := &subscriber{
+		identity: &controlv1.DataplaneIdentity{
+			Namespace: "default",
+			Env:       "dev",
+		},
+		targets: map[string]model.ServiceRef{
+			"default/dev/orders": {
+				Service:   "orders",
+				Namespace: "default",
+				Env:       "dev",
+			},
+		},
+	}
+	changed := []*controlv1.ServiceSnapshot{
+		{
+			Service: &controlv1.ServiceRef{
+				Service:   "orders",
+				Namespace: "default",
+				Env:       "dev",
+			},
+			Endpoints: []*controlv1.Endpoint{
+				{Address: "10.0.0.10", Port: 19090, Weight: 1},
+			},
+			Revision: "v1",
+		},
+	}
+
+	responses := cycle.SubscribeResponses(sub, []model.ServiceRef{{
+		Service:   "orders",
+		Namespace: "default",
+		Env:       "dev",
+	}}, changed)
+	if got, want := len(responses), 2; got != want {
+		t.Fatalf("unexpected subscribe response count: got=%d want=%d", got, want)
+	}
+	if responses[0].GetServiceSnapshot() == nil {
+		t.Fatal("expected first subscribe response to be changed snapshot")
+	}
+	if responses[1].GetRoutePolicy() == nil {
+		t.Fatal("expected second subscribe response to be route policy")
+	}
+}
+
+func TestDeliveryCycleBuildsTargetedBroadcastPlan(t *testing.T) {
+	store := snapshot.NewStore()
+	exactSnapshot := &controlv1.ServiceSnapshot{
+		Service: &controlv1.ServiceRef{
+			Service:   "orders",
+			Namespace: "default",
+			Env:       "dev",
+		},
+		Endpoints: []*controlv1.Endpoint{
+			{Address: "10.0.0.10", Port: 19090, Weight: 1},
+		},
+		Revision: "exact",
+	}
+	store.PutServiceSnapshot(exactSnapshot)
+
+	cycle := newDeliveryCycle(store)
+	allowed := &subscriber{
+		pushCh: make(chan *controlv1.ConnectResponse, 1),
+		identity: &controlv1.DataplaneIdentity{
+			Namespace: "default",
+			Env:       "dev",
+		},
+		targets: map[string]model.ServiceRef{
+			"default/dev/orders": {
+				Service:   "orders",
+				Namespace: "default",
+				Env:       "dev",
+			},
+		},
+	}
+	blocked := &subscriber{
+		pushCh: make(chan *controlv1.ConnectResponse, 1),
+		identity: &controlv1.DataplaneIdentity{
+			Namespace: "other",
+			Env:       "dev",
+		},
+		targets: map[string]model.ServiceRef{
+			"other/dev/orders": {
+				Service:   "orders",
+				Namespace: "other",
+				Env:       "dev",
+			},
+		},
+	}
+
+	deliveries := cycle.PlanTargetResponse(map[uint64]*subscriber{
+		1: allowed,
+		2: blocked,
+	}, &controlv1.ConnectResponse{
+		Body: &controlv1.ConnectResponse_ServiceSnapshot{
+			ServiceSnapshot: exactSnapshot,
+		},
+	}, model.ServiceRef{
+		Service:   "orders",
+		Namespace: "default",
+		Env:       "dev",
+	})
+	if got, want := len(deliveries), 1; got != want {
+		t.Fatalf("unexpected targeted delivery count: got=%d want=%d", got, want)
+	}
+}
+
 func TestServerShouldPushFallbackPolicyOnlyWhenItIsBestCandidate(t *testing.T) {
 	store := snapshot.NewStore()
 	fallbackPolicy := &controlv1.RoutePolicy{

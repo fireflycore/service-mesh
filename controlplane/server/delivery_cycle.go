@@ -12,6 +12,11 @@ type deliveryCycle struct {
 	deliveredPolicyKeys map[string]struct{}
 }
 
+type plannedDelivery struct {
+	pushCh   chan *controlv1.ConnectResponse
+	response *controlv1.ConnectResponse
+}
+
 func newDeliveryCycle(store *snapshot.Store) deliveryCycle {
 	if store == nil {
 		return deliveryCycle{
@@ -120,6 +125,95 @@ func (d deliveryCycle) PolicyForSubscribeTarget(subscriber *subscriber, target m
 	}
 	d.deliveredPolicyKeys[key] = struct{}{}
 	return policy
+}
+
+func (d deliveryCycle) RememberChangedSnapshots(changed []*controlv1.ServiceSnapshot) {
+	for _, snapshot := range changed {
+		d.RememberChangedSnapshot(snapshot)
+	}
+}
+
+func (d deliveryCycle) SubscribeResponses(subscriber *subscriber, targets []model.ServiceRef, changed []*controlv1.ServiceSnapshot) []*controlv1.ConnectResponse {
+	d.RememberChangedSnapshots(changed)
+
+	responses := make([]*controlv1.ConnectResponse, 0, len(changed)+len(targets)*2)
+	for _, snapshot := range changed {
+		if snapshot == nil {
+			continue
+		}
+		responses = append(responses, &controlv1.ConnectResponse{
+			Body: &controlv1.ConnectResponse_ServiceSnapshot{
+				ServiceSnapshot: snapshot,
+			},
+		})
+	}
+
+	for _, target := range targets {
+		if snapshot := d.SnapshotForSubscribeTarget(subscriber, target); snapshot != nil {
+			responses = append(responses, &controlv1.ConnectResponse{
+				Body: &controlv1.ConnectResponse_ServiceSnapshot{
+					ServiceSnapshot: snapshot,
+				},
+			})
+		}
+
+		if policy := d.PolicyForSubscribeTarget(subscriber, target); policy != nil {
+			responses = append(responses, &controlv1.ConnectResponse{
+				Body: &controlv1.ConnectResponse_RoutePolicy{
+					RoutePolicy: policy,
+				},
+			})
+		}
+	}
+
+	return responses
+}
+
+func (d deliveryCycle) PlanTargetResponse(subscribers map[uint64]*subscriber, resp *controlv1.ConnectResponse, target model.ServiceRef) []plannedDelivery {
+	if len(subscribers) == 0 || resp == nil {
+		return nil
+	}
+
+	deliveries := make([]plannedDelivery, 0, len(subscribers))
+	for _, subscriber := range subscribers {
+		if subscriber == nil || subscriber.pushCh == nil {
+			continue
+		}
+		if !d.AllowsTargetResponse(subscriber, resp, target) {
+			continue
+		}
+		deliveries = append(deliveries, plannedDelivery{
+			pushCh:   subscriber.pushCh,
+			response: resp,
+		})
+	}
+	return deliveries
+}
+
+func (d deliveryCycle) PlanRoutePolicy(subscribers map[uint64]*subscriber, policy *controlv1.RoutePolicy, target model.ServiceRef) []plannedDelivery {
+	if len(subscribers) == 0 || policy == nil {
+		return nil
+	}
+
+	response := &controlv1.ConnectResponse{
+		Body: &controlv1.ConnectResponse_RoutePolicy{
+			RoutePolicy: policy,
+		},
+	}
+	deliveries := make([]plannedDelivery, 0, len(subscribers))
+	for _, subscriber := range subscribers {
+		if subscriber == nil || subscriber.pushCh == nil {
+			continue
+		}
+		if !d.AllowsTargetPolicy(subscriber, policy, target) {
+			continue
+		}
+		deliveries = append(deliveries, plannedDelivery{
+			pushCh:   subscriber.pushCh,
+			response: response,
+		})
+	}
+	return deliveries
 }
 
 func (d deliveryCycle) AllowsTargetResponse(subscriber *subscriber, resp *controlv1.ConnectResponse, target model.ServiceRef) bool {

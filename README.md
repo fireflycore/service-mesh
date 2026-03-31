@@ -106,6 +106,7 @@ service
   - arbitration cache 已引入，减少同一轮 register / subscribe / push 中的重复裁决构造成本
   - delivery cycle 上下文已承接 target 级裁决，subscribe / push 进一步从 server 主流程下沉
   - changed snapshot / already-sent policy 等本轮局部状态也已下沉到 delivery cycle，减少 server 主流程分支噪音
+  - push 路径的目标投递判定也开始收敛为统一 delivery plan，broadcast 逻辑进一步瘦身
   - consul / etcd / ext_authz / telemetry 初始化等外部交互已补齐默认超时保护，避免缺环境时长时间挂起
 
 ## 设计原则

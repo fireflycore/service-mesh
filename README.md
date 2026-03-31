@@ -109,6 +109,7 @@ service
   - push 路径的目标投递判定也开始收敛为统一 delivery plan，broadcast 逻辑进一步瘦身
   - register / subscribe / push 三条路径开始复用统一 delivery batch 模型，stream 回放与异步推送的输出形态继续收敛
   - route policy 主动推送也已并入通用 response / batch 路径，减少独立 push 分支
+  - delivery batch 已开始内聚 response / delivery 追加逻辑，为后续 builder / planner 继续演进打底
   - consul / etcd / ext_authz / telemetry 初始化等外部交互已补齐默认超时保护，避免缺环境时长时间挂起
 
 ## 设计原则

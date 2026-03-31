@@ -22,6 +22,79 @@ type deliveryBatch struct {
 	deliveries      []plannedDelivery
 }
 
+func newDeliveryBatch(streamCapacity, deliveryCapacity int) deliveryBatch {
+	if streamCapacity < 0 {
+		streamCapacity = 0
+	}
+	if deliveryCapacity < 0 {
+		deliveryCapacity = 0
+	}
+	return deliveryBatch{
+		streamResponses: make([]*controlv1.ConnectResponse, 0, streamCapacity),
+		deliveries:      make([]plannedDelivery, 0, deliveryCapacity),
+	}
+}
+
+func (b *deliveryBatch) addStreamResponse(resp *controlv1.ConnectResponse) {
+	if b == nil || resp == nil {
+		return
+	}
+	b.streamResponses = append(b.streamResponses, resp)
+}
+
+func (b *deliveryBatch) addStreamSnapshot(snapshot *controlv1.ServiceSnapshot) {
+	if snapshot == nil {
+		return
+	}
+	b.addStreamResponse(snapshotResponse(snapshot))
+}
+
+func (b *deliveryBatch) addStreamPolicy(policy *controlv1.RoutePolicy) {
+	if policy == nil {
+		return
+	}
+	b.addStreamResponse(routePolicyResponse(policy))
+}
+
+func (b *deliveryBatch) addDeliveries(deliveries []plannedDelivery) {
+	if b == nil || len(deliveries) == 0 {
+		return
+	}
+	b.deliveries = append(b.deliveries, deliveries...)
+}
+
+func (b *deliveryBatch) addPlannedDelivery(pushCh chan *controlv1.ConnectResponse, resp *controlv1.ConnectResponse) {
+	if b == nil || pushCh == nil || resp == nil {
+		return
+	}
+	b.deliveries = append(b.deliveries, plannedDelivery{
+		pushCh:   pushCh,
+		response: resp,
+	})
+}
+
+func snapshotResponse(snapshot *controlv1.ServiceSnapshot) *controlv1.ConnectResponse {
+	if snapshot == nil {
+		return nil
+	}
+	return &controlv1.ConnectResponse{
+		Body: &controlv1.ConnectResponse_ServiceSnapshot{
+			ServiceSnapshot: snapshot,
+		},
+	}
+}
+
+func routePolicyResponse(policy *controlv1.RoutePolicy) *controlv1.ConnectResponse {
+	if policy == nil {
+		return nil
+	}
+	return &controlv1.ConnectResponse{
+		Body: &controlv1.ConnectResponse_RoutePolicy{
+			RoutePolicy: policy,
+		},
+	}
+}
+
 func newDeliveryCycle(store *snapshot.Store) deliveryCycle {
 	if store == nil {
 		return deliveryCycle{
@@ -147,63 +220,32 @@ func (d deliveryCycle) RememberChangedSnapshots(changed []*controlv1.ServiceSnap
 func (d deliveryCycle) SubscribeResponses(subscriber *subscriber, targets []model.ServiceRef, changed []*controlv1.ServiceSnapshot) []*controlv1.ConnectResponse {
 	d.RememberChangedSnapshots(changed)
 
-	responses := make([]*controlv1.ConnectResponse, 0, len(changed)+len(targets)*2)
+	batch := newDeliveryBatch(len(changed)+len(targets)*2, 0)
 	for _, snapshot := range changed {
-		if snapshot == nil {
-			continue
-		}
-		responses = append(responses, &controlv1.ConnectResponse{
-			Body: &controlv1.ConnectResponse_ServiceSnapshot{
-				ServiceSnapshot: snapshot,
-			},
-		})
+		batch.addStreamSnapshot(snapshot)
 	}
 
 	for _, target := range targets {
 		if snapshot := d.SnapshotForSubscribeTarget(subscriber, target); snapshot != nil {
-			responses = append(responses, &controlv1.ConnectResponse{
-				Body: &controlv1.ConnectResponse_ServiceSnapshot{
-					ServiceSnapshot: snapshot,
-				},
-			})
+			batch.addStreamSnapshot(snapshot)
 		}
 
 		if policy := d.PolicyForSubscribeTarget(subscriber, target); policy != nil {
-			responses = append(responses, &controlv1.ConnectResponse{
-				Body: &controlv1.ConnectResponse_RoutePolicy{
-					RoutePolicy: policy,
-				},
-			})
+			batch.addStreamPolicy(policy)
 		}
 	}
 
-	return responses
+	return batch.streamResponses
 }
 
 func (d deliveryCycle) RegisterBatch(identity *controlv1.DataplaneIdentity) deliveryBatch {
 	arbitrator := d.ForIdentity(identity)
-	batch := deliveryBatch{
-		streamResponses: make([]*controlv1.ConnectResponse, 0, len(arbitrator.SelectedSnapshots())+len(arbitrator.SelectedPolicies())),
-	}
+	batch := newDeliveryBatch(len(arbitrator.SelectedSnapshots())+len(arbitrator.SelectedPolicies()), 0)
 	for _, serviceSnapshot := range arbitrator.SelectedSnapshots() {
-		if serviceSnapshot == nil {
-			continue
-		}
-		batch.streamResponses = append(batch.streamResponses, &controlv1.ConnectResponse{
-			Body: &controlv1.ConnectResponse_ServiceSnapshot{
-				ServiceSnapshot: serviceSnapshot,
-			},
-		})
+		batch.addStreamSnapshot(serviceSnapshot)
 	}
 	for _, routePolicy := range arbitrator.SelectedPolicies() {
-		if routePolicy == nil {
-			continue
-		}
-		batch.streamResponses = append(batch.streamResponses, &controlv1.ConnectResponse{
-			Body: &controlv1.ConnectResponse_RoutePolicy{
-				RoutePolicy: routePolicy,
-			},
-		})
+		batch.addStreamPolicy(routePolicy)
 	}
 	return batch
 }
@@ -219,7 +261,7 @@ func (d deliveryCycle) PlanTargetResponse(subscribers map[uint64]*subscriber, re
 		return nil
 	}
 
-	deliveries := make([]plannedDelivery, 0, len(subscribers))
+	batch := newDeliveryBatch(0, len(subscribers))
 	for _, subscriber := range subscribers {
 		if subscriber == nil || subscriber.pushCh == nil {
 			continue
@@ -227,12 +269,9 @@ func (d deliveryCycle) PlanTargetResponse(subscribers map[uint64]*subscriber, re
 		if !d.AllowsTargetResponse(subscriber, resp, target) {
 			continue
 		}
-		deliveries = append(deliveries, plannedDelivery{
-			pushCh:   subscriber.pushCh,
-			response: resp,
-		})
+		batch.addPlannedDelivery(subscriber.pushCh, resp)
 	}
-	return deliveries
+	return batch.deliveries
 }
 
 func (d deliveryCycle) TargetBroadcastBatch(subscribers map[uint64]*subscriber, resp *controlv1.ConnectResponse, target model.ServiceRef) deliveryBatch {

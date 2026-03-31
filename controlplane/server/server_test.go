@@ -1139,6 +1139,37 @@ func TestDeliveryCycleRegisterBatchBuildsReplayPayloads(t *testing.T) {
 	}
 }
 
+func TestDeliveryBatchBuilderSkipsNilAndPreservesOrder(t *testing.T) {
+	batch := newDeliveryBatch(4, 2)
+	batch.addStreamSnapshot(nil)
+	batch.addStreamPolicy(nil)
+	batch.addStreamSnapshot(&controlv1.ServiceSnapshot{
+		Service: &controlv1.ServiceRef{
+			Service:   "orders",
+			Namespace: "default",
+			Env:       "dev",
+		},
+	})
+	batch.addStreamPolicy(&controlv1.RoutePolicy{
+		Service: &controlv1.ServiceRef{
+			Service:   "orders",
+			Namespace: "default",
+			Env:       "dev",
+		},
+		TimeoutMs: 1500,
+	})
+
+	if got, want := len(batch.streamResponses), 2; got != want {
+		t.Fatalf("unexpected batch stream response count: got=%d want=%d", got, want)
+	}
+	if batch.streamResponses[0].GetServiceSnapshot() == nil {
+		t.Fatal("expected snapshot response to stay first")
+	}
+	if batch.streamResponses[1].GetRoutePolicy() == nil {
+		t.Fatal("expected policy response to stay second")
+	}
+}
+
 func TestDeliveryCycleBuildsTargetedBroadcastPlan(t *testing.T) {
 	store := snapshot.NewStore()
 	exactSnapshot := &controlv1.ServiceSnapshot{

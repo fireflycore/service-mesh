@@ -983,6 +983,71 @@ func TestDeliveryCycleResolvesTargetScopedSnapshotAndPolicyForSubscriber(t *test
 	}
 }
 
+func TestDeliveryCycleSubscribeHelpersHideChangedSnapshotAndDeduplicatePolicy(t *testing.T) {
+	store := snapshot.NewStore()
+	exactSnapshot := &controlv1.ServiceSnapshot{
+		Service: &controlv1.ServiceRef{
+			Service:   "orders",
+			Namespace: "default",
+			Env:       "dev",
+		},
+		Endpoints: []*controlv1.Endpoint{
+			{Address: "10.0.0.10", Port: 19090, Weight: 1},
+		},
+		Revision: "exact",
+	}
+	store.PutServiceSnapshot(exactSnapshot)
+	store.PutRoutePolicy(&controlv1.RoutePolicy{
+		Service: &controlv1.ServiceRef{
+			Service:   "orders",
+			Namespace: "default",
+			Env:       "dev",
+		},
+		TimeoutMs: 1500,
+	})
+
+	cycle := newDeliveryCycle(store)
+	sub := &subscriber{
+		identity: &controlv1.DataplaneIdentity{
+			Namespace: "default",
+			Env:       "dev",
+		},
+		targets: map[string]model.ServiceRef{
+			"default/dev/orders": {
+				Service:   "orders",
+				Namespace: "default",
+				Env:       "dev",
+			},
+			"default/orders": {
+				Service:   "orders",
+				Namespace: "default",
+			},
+		},
+	}
+
+	target := model.ServiceRef{
+		Service:   "orders",
+		Namespace: "default",
+		Env:       "dev",
+	}
+	cycle.RememberChangedSnapshot(exactSnapshot)
+	if snapshot := cycle.SnapshotForSubscribeTarget(sub, target); snapshot != nil {
+		t.Fatal("expected changed snapshot to be suppressed during subscribe delivery")
+	}
+
+	firstPolicy := cycle.PolicyForSubscribeTarget(sub, target)
+	if firstPolicy == nil {
+		t.Fatal("expected first subscribe target to receive policy")
+	}
+	secondPolicy := cycle.PolicyForSubscribeTarget(sub, model.ServiceRef{
+		Service:   "orders",
+		Namespace: "default",
+	})
+	if secondPolicy != nil {
+		t.Fatal("expected already-delivered policy to be deduplicated")
+	}
+}
+
 func TestServerShouldPushFallbackPolicyOnlyWhenItIsBestCandidate(t *testing.T) {
 	store := snapshot.NewStore()
 	fallbackPolicy := &controlv1.RoutePolicy{

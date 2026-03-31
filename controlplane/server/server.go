@@ -200,19 +200,13 @@ func (s *Server) handleSubscribe(stream grpc.BidiStreamingServer[controlv1.Conne
 	s.updateSubscriberTargets(subscriberID, targets)
 	subscriber := s.lookupSubscriber(subscriberID)
 	cycle := newDeliveryCycle(s.store)
-
-	changedKeys := make(map[string]struct{})
 	if s.loader != nil {
 		changed, err := s.loader.RefreshMany(stream.Context(), targets)
 		if err != nil {
 			return err
 		}
 		for _, snapshot := range changed {
-			changedKeys[targetKey(model.ServiceRef{
-				Service:   snapshot.GetService().GetService(),
-				Namespace: snapshot.GetService().GetNamespace(),
-				Env:       snapshot.GetService().GetEnv(),
-			})] = struct{}{}
+			cycle.RememberChangedSnapshot(snapshot)
 			if err := stream.Send(&controlv1.ConnectResponse{
 				Body: &controlv1.ConnectResponse_ServiceSnapshot{
 					ServiceSnapshot: snapshot,
@@ -223,36 +217,22 @@ func (s *Server) handleSubscribe(stream grpc.BidiStreamingServer[controlv1.Conne
 		}
 	}
 
-	sentPolicies := make(map[string]struct{}, len(targets))
 	for _, target := range targets {
-		if _, ok := changedKeys[targetKey(target)]; ok {
-		} else {
-			snapshot := cycle.SnapshotForSubscriberTarget(subscriber, target)
-			if snapshot != nil {
-				if err := stream.Send(&controlv1.ConnectResponse{
-					Body: &controlv1.ConnectResponse_ServiceSnapshot{
-						ServiceSnapshot: snapshot,
-					},
-				}); err != nil {
-					return err
-				}
+		snapshot := cycle.SnapshotForSubscribeTarget(subscriber, target)
+		if snapshot != nil {
+			if err := stream.Send(&controlv1.ConnectResponse{
+				Body: &controlv1.ConnectResponse_ServiceSnapshot{
+					ServiceSnapshot: snapshot,
+				},
+			}); err != nil {
+				return err
 			}
 		}
 
-		policy := cycle.PolicyForSubscriberTarget(subscriber, target)
+		policy := cycle.PolicyForSubscribeTarget(subscriber, target)
 		if policy == nil {
 			continue
 		}
-		key := targetKey(model.ServiceRef{
-			Service:   policy.GetService().GetService(),
-			Namespace: policy.GetService().GetNamespace(),
-			Env:       policy.GetService().GetEnv(),
-			Port:      policy.GetService().GetPort(),
-		})
-		if _, ok := sentPolicies[key]; ok {
-			continue
-		}
-		sentPolicies[key] = struct{}{}
 		if err := stream.Send(&controlv1.ConnectResponse{
 			Body: &controlv1.ConnectResponse_RoutePolicy{
 				RoutePolicy: policy,

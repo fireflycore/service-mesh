@@ -183,7 +183,16 @@ func (s *Server) handleRegister(stream grpc.BidiStreamingServer[controlv1.Connec
 	if register == nil || register.GetIdentity() == nil {
 		return nil
 	}
-	return newDeliveryCycle(s.store).RegisterBatch(register.GetIdentity()).Send(stream)
+	batch := newDeliveryCycle(s.store).RegisterBatch(register.GetIdentity())
+	identity := register.GetIdentity()
+	slog.Info("controlplane register replay prepared",
+		slog.String("dataplane_id", identity.GetDataplaneId()),
+		slog.String("node_id", identity.GetNodeId()),
+		slog.String("namespace", identity.GetNamespace()),
+		slog.String("env", identity.GetEnv()),
+		slog.Int("stream_responses", batch.StreamCount()),
+	)
+	return batch.Send(stream)
 }
 
 // handleHeartbeat 为后续更复杂的控制面状态机保留入口。
@@ -232,7 +241,19 @@ func (s *Server) handleSubscribe(stream grpc.BidiStreamingServer[controlv1.Conne
 		}
 	}
 
-	return cycle.SubscribeBatch(subscriber, targets, changed).Send(stream)
+	batch := cycle.SubscribeBatch(subscriber, targets, changed)
+	if subscriber != nil && subscriber.identity != nil {
+		slog.Info("controlplane subscribe replay prepared",
+			slog.String("dataplane_id", subscriber.identity.GetDataplaneId()),
+			slog.String("node_id", subscriber.identity.GetNodeId()),
+			slog.String("namespace", subscriber.identity.GetNamespace()),
+			slog.String("env", subscriber.identity.GetEnv()),
+			slog.Int("target_count", len(targets)),
+			slog.Int("changed_snapshot_count", len(changed)),
+			slog.Int("stream_responses", batch.StreamCount()),
+		)
+	}
+	return batch.Send(stream)
 }
 
 // TrackTarget 把目标服务加入控制面后续刷新的已知集合。
@@ -376,8 +397,19 @@ func (s *Server) broadcastRoutePolicy(policy *controlv1.RoutePolicy, target mode
 func (s *Server) broadcastForTarget(resp *controlv1.ConnectResponse, target model.ServiceRef) {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
-
-	newDeliveryCycle(s.store).TargetBroadcastBatch(s.subscribers, resp, target).Push()
+	cycle := newDeliveryCycle(s.store)
+	summary := cycle.ExplainTargetResponse(s.subscribers, resp, target)
+	slog.Info("controlplane push explain",
+		slog.String("response_kind", summary.responseKind),
+		slog.String("service", target.Service),
+		slog.String("namespace", target.Namespace),
+		slog.String("env", target.Env),
+		slog.Int("delivered", summary.delivered),
+		slog.Int("denied_subscription", summary.deniedSubscription),
+		slog.Int("denied_identity", summary.deniedIdentity),
+		slog.Int("denied_arbitration", summary.deniedArbitration),
+	)
+	cycle.TargetBroadcastBatch(s.subscribers, resp, target).Push()
 }
 
 func (s *Server) trackedTargetList() []model.ServiceRef {

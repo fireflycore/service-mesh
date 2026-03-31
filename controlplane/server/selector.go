@@ -350,6 +350,25 @@ func (m selectorMatch) matched() bool {
 	return m.subscription != matchPriorityNone && m.identity != matchPriorityNone
 }
 
+func (m selectorMatch) subscriptionLabel() string {
+	return matchPriorityLabel(m.subscription)
+}
+
+func (m selectorMatch) identityLabel() string {
+	return matchPriorityLabel(m.identity)
+}
+
+func matchPriorityLabel(priority matchPriority) string {
+	switch priority {
+	case matchPriorityExact:
+		return "exact"
+	case matchPriorityFallback:
+		return "fallback"
+	default:
+		return "none"
+	}
+}
+
 func toModelTarget(service *controlv1.ServiceRef) model.ServiceRef {
 	if service == nil {
 		return model.ServiceRef{}

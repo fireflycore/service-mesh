@@ -123,6 +123,7 @@ service
   - source watch 的 degraded 阈值已支持按 provider 配置，watch 错误原因也开始带上统一分类
   - controlplane 已开始为 watch restart 与 snapshot status / reason class 输出最小观测出口
   - `consul / etcd` 的“空健康实例”错误已开始收敛为统一 `empty` 类，便于后续做 provider-specific 错误策略
+  - M16 也已开始补 explain：register / subscribe / target push 会输出 identity 与投递决策摘要
   - consul / etcd / ext_authz / telemetry 初始化等外部交互已补齐默认超时保护，避免缺环境时长时间挂起
 
 ## 设计原则

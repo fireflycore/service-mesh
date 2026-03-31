@@ -66,6 +66,12 @@
 - identity 进入日志、指标与策略命中记录
 - 继续避免在 delivery 内部结构上做低价值重构
 
+当前已开始落地的首轮 explain 能力：
+
+- register replay 会输出 identity 与回放响应数量
+- subscribe replay 会输出 identity、目标数量与回放数量
+- target push 会输出 delivered / denied_subscription / denied_identity / denied_arbitration
+
 ### 第三优先级：M18 最小观测补强
 
 - watch restart 次数

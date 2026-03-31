@@ -106,6 +106,14 @@ func (b deliveryBatch) Push() {
 	}
 }
 
+func (b deliveryBatch) StreamCount() int {
+	return len(b.streamResponses)
+}
+
+func (b deliveryBatch) DeliveryCount() int {
+	return len(b.deliveries)
+}
+
 func snapshotResponse(snapshot *controlv1.ServiceSnapshot) *controlv1.ConnectResponse {
 	if snapshot == nil {
 		return nil

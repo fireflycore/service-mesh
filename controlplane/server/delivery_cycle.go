@@ -184,6 +184,33 @@ func (d deliveryCycle) TargetBroadcastBatch(subscribers map[uint64]*subscriber, 
 	return builder.build()
 }
 
+func (d deliveryCycle) ExplainTargetResponse(subscribers map[uint64]*subscriber, resp *controlv1.ConnectResponse, target model.ServiceRef) deliveryExplainSummary {
+	summary := deliveryExplainSummary{
+		responseKind: responseKind(resp),
+		target:       target,
+	}
+	for _, subscriber := range subscribers {
+		if subscriber == nil || subscriber.pushCh == nil {
+			continue
+		}
+		match := evaluateSelectorMatch(selectorFromSubscriber(subscriber), selectorFromResponse(resp, target))
+		if match.subscription == matchPriorityNone {
+			summary.deniedSubscription++
+			continue
+		}
+		if match.identity == matchPriorityNone {
+			summary.deniedIdentity++
+			continue
+		}
+		if !d.AllowsResponse(subscriber, resp) {
+			summary.deniedArbitration++
+			continue
+		}
+		summary.delivered++
+	}
+	return summary
+}
+
 func (d deliveryCycle) AllowsTargetResponse(subscriber *subscriber, resp *controlv1.ConnectResponse, target model.ServiceRef) bool {
 	if !matchesSelectors(selectorFromSubscriber(subscriber), selectorFromResponse(resp, target)) {
 		return false

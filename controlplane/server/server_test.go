@@ -2011,3 +2011,65 @@ func TestServerBackgroundWatchRestartsAfterWatchStreamCloses(t *testing.T) {
 		}
 	}
 }
+
+func TestDeliveryCycleExplainTargetResponse(t *testing.T) {
+	cycle := newDeliveryCycle(nil)
+	resp := snapshotDeletedResponse(&controlv1.ServiceSnapshotDeleted{
+		Service: &controlv1.ServiceRef{
+			Service:   "orders",
+			Namespace: "default",
+			Env:       "dev",
+		},
+	})
+	subscribers := map[uint64]*subscriber{
+		1: {
+			pushCh: make(chan *controlv1.ConnectResponse, 1),
+			identity: &controlv1.DataplaneIdentity{
+				DataplaneId: "dp-1",
+				Namespace:   "default",
+				Env:         "dev",
+			},
+			targets: map[string]model.ServiceRef{
+				targetKey(model.ServiceRef{Service: "orders", Namespace: "default", Env: "dev"}): {
+					Service:   "orders",
+					Namespace: "default",
+					Env:       "dev",
+				},
+			},
+		},
+		2: {
+			pushCh: make(chan *controlv1.ConnectResponse, 1),
+			identity: &controlv1.DataplaneIdentity{
+				DataplaneId: "dp-2",
+				Namespace:   "default",
+				Env:         "dev",
+			},
+			targets: map[string]model.ServiceRef{
+				targetKey(model.ServiceRef{Service: "payments", Namespace: "default", Env: "dev"}): {
+					Service:   "payments",
+					Namespace: "default",
+					Env:       "dev",
+				},
+			},
+		},
+	}
+
+	summary := cycle.ExplainTargetResponse(subscribers, resp, model.ServiceRef{
+		Service:   "orders",
+		Namespace: "default",
+		Env:       "dev",
+	})
+
+	if got, want := summary.responseKind, "service_snapshot_deleted"; got != want {
+		t.Fatalf("unexpected response kind: got=%s want=%s", got, want)
+	}
+	if got, want := summary.delivered, 1; got != want {
+		t.Fatalf("unexpected delivered count: got=%d want=%d", got, want)
+	}
+	if got, want := summary.deniedSubscription, 1; got != want {
+		t.Fatalf("unexpected denied subscription count: got=%d want=%d", got, want)
+	}
+	if got, want := summary.deniedIdentity, 0; got != want {
+		t.Fatalf("unexpected denied identity count: got=%d want=%d", got, want)
+	}
+}

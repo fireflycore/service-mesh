@@ -5,7 +5,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"net"
-	"reflect"
 	"strconv"
 	"strings"
 	"time"
@@ -143,50 +142,13 @@ func (p *Provider) Resolve(ctx context.Context, target model.ServiceRef) (model.
 }
 
 func (p *Provider) Watch(ctx context.Context, target model.ServiceRef) (watchapi.Stream, error) {
-	stream := newPollWatchStream()
-	go func() {
-		defer stream.Close()
-
-		ticker := time.NewTicker(durationFromMS(p.Config.QueryTimeoutMS))
-		defer ticker.Stop()
-
-		var last model.ServiceSnapshot
-		var hasLast bool
-		poll := func() {
-			snapshot, err := p.Resolve(ctx, target)
-			if err != nil {
-				if hasLast {
-					hasLast = false
-					last = model.ServiceSnapshot{}
-					stream.publish(watchapi.Event{
-						Kind:   watchapi.EventDelete,
-						Target: target,
-					})
-				}
-				return
-			}
-			if !hasLast || !reflect.DeepEqual(last, snapshot) {
-				hasLast = true
-				last = snapshot
-				stream.publish(watchapi.Event{
-					Kind:     watchapi.EventUpsert,
-					Target:   snapshot.Service,
-					Snapshot: snapshot,
-				})
-			}
+	return watchapi.RunPolling(ctx, durationFromMS(p.Config.QueryTimeoutMS), target, func(ctx context.Context) (model.ServiceSnapshot, bool, error) {
+		snapshot, err := p.Resolve(ctx, target)
+		if err != nil {
+			return model.ServiceSnapshot{}, false, nil
 		}
-
-		poll()
-		for {
-			select {
-			case <-ctx.Done():
-				return
-			case <-ticker.C:
-				poll()
-			}
-		}
-	}()
-	return stream, nil
+		return snapshot, true, nil
+	}), nil
 }
 
 func (p *Provider) queryContext(parent context.Context) (context.Context, context.CancelFunc) {
@@ -253,33 +215,4 @@ func durationFromMS(value uint64) time.Duration {
 		return time.Second
 	}
 	return time.Duration(value) * time.Millisecond
-}
-
-type pollWatchStream struct {
-	events chan watchapi.Event
-}
-
-func newPollWatchStream() *pollWatchStream {
-	return &pollWatchStream{
-		events: make(chan watchapi.Event, 8),
-	}
-}
-
-func (s *pollWatchStream) Events() <-chan watchapi.Event {
-	return s.events
-}
-
-func (s *pollWatchStream) Close() error {
-	defer func() {
-		recover()
-	}()
-	close(s.events)
-	return nil
-}
-
-func (s *pollWatchStream) publish(event watchapi.Event) {
-	select {
-	case s.events <- event:
-	default:
-	}
 }

@@ -62,10 +62,16 @@ func (d deliveryCycle) AllowsSnapshot(subscriber *subscriber, snapshot *controlv
 }
 
 func (d deliveryCycle) AllowsResponse(subscriber *subscriber, resp *controlv1.ConnectResponse) bool {
-	if resp == nil || resp.GetServiceSnapshot() == nil {
+	if resp == nil {
 		return true
 	}
-	return d.AllowsSnapshot(subscriber, resp.GetServiceSnapshot())
+	if snapshot := resp.GetServiceSnapshot(); snapshot != nil {
+		return d.AllowsSnapshot(subscriber, snapshot)
+	}
+	if policy := resp.GetRoutePolicy(); policy != nil {
+		return d.AllowsPolicy(subscriber, policy)
+	}
+	return true
 }
 
 func (d deliveryCycle) SnapshotForSubscriberTarget(subscriber *subscriber, target model.ServiceRef) *controlv1.ServiceSnapshot {
@@ -232,38 +238,6 @@ func (d deliveryCycle) PlanTargetResponse(subscribers map[uint64]*subscriber, re
 func (d deliveryCycle) TargetBroadcastBatch(subscribers map[uint64]*subscriber, resp *controlv1.ConnectResponse, target model.ServiceRef) deliveryBatch {
 	return deliveryBatch{
 		deliveries: d.PlanTargetResponse(subscribers, resp, target),
-	}
-}
-
-func (d deliveryCycle) PlanRoutePolicy(subscribers map[uint64]*subscriber, policy *controlv1.RoutePolicy, target model.ServiceRef) []plannedDelivery {
-	if len(subscribers) == 0 || policy == nil {
-		return nil
-	}
-
-	response := &controlv1.ConnectResponse{
-		Body: &controlv1.ConnectResponse_RoutePolicy{
-			RoutePolicy: policy,
-		},
-	}
-	deliveries := make([]plannedDelivery, 0, len(subscribers))
-	for _, subscriber := range subscribers {
-		if subscriber == nil || subscriber.pushCh == nil {
-			continue
-		}
-		if !d.AllowsTargetPolicy(subscriber, policy, target) {
-			continue
-		}
-		deliveries = append(deliveries, plannedDelivery{
-			pushCh:   subscriber.pushCh,
-			response: response,
-		})
-	}
-	return deliveries
-}
-
-func (d deliveryCycle) RoutePolicyBroadcastBatch(subscribers map[uint64]*subscriber, policy *controlv1.RoutePolicy, target model.ServiceRef) deliveryBatch {
-	return deliveryBatch{
-		deliveries: d.PlanRoutePolicy(subscribers, policy, target),
 	}
 }
 

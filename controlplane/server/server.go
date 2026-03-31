@@ -306,7 +306,11 @@ func (s *Server) broadcastRoutePolicy(policy *controlv1.RoutePolicy, target mode
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 
-	pushDeliveryBatch(newDeliveryCycle(s.store).RoutePolicyBroadcastBatch(s.subscribers, policy, target))
+	pushDeliveryBatch(newDeliveryCycle(s.store).TargetBroadcastBatch(s.subscribers, &controlv1.ConnectResponse{
+		Body: &controlv1.ConnectResponse_RoutePolicy{
+			RoutePolicy: policy,
+		},
+	}, target))
 }
 
 func (s *Server) broadcastForTarget(resp *controlv1.ConnectResponse, target model.ServiceRef) {

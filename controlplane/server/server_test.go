@@ -1249,6 +1249,78 @@ func TestDeliveryCycleTargetBroadcastBatchBuildsDeliveries(t *testing.T) {
 	}
 }
 
+func TestDeliveryCycleTargetBroadcastBatchBuildsPolicyDeliveries(t *testing.T) {
+	store := snapshot.NewStore()
+	exactPolicy := &controlv1.RoutePolicy{
+		Service: &controlv1.ServiceRef{
+			Service:   "orders",
+			Namespace: "default",
+			Env:       "dev",
+		},
+		TimeoutMs: 1500,
+	}
+	fallbackPolicy := &controlv1.RoutePolicy{
+		Service: &controlv1.ServiceRef{
+			Service:   "orders",
+			Namespace: "default",
+		},
+		TimeoutMs: 900,
+	}
+	store.PutRoutePolicy(fallbackPolicy)
+	store.PutRoutePolicy(exactPolicy)
+
+	allowed := &subscriber{
+		pushCh: make(chan *controlv1.ConnectResponse, 1),
+		identity: &controlv1.DataplaneIdentity{
+			Namespace: "default",
+			Env:       "dev",
+		},
+		targets: map[string]model.ServiceRef{
+			"default/dev/orders": {
+				Service:   "orders",
+				Namespace: "default",
+				Env:       "dev",
+			},
+		},
+	}
+	blocked := &subscriber{
+		pushCh: make(chan *controlv1.ConnectResponse, 1),
+		identity: &controlv1.DataplaneIdentity{
+			Namespace: "default",
+			Env:       "prod",
+		},
+		targets: map[string]model.ServiceRef{
+			"default/prod/orders": {
+				Service:   "orders",
+				Namespace: "default",
+				Env:       "prod",
+			},
+		},
+	}
+
+	batch := newDeliveryCycle(store).TargetBroadcastBatch(map[uint64]*subscriber{
+		1: allowed,
+		2: blocked,
+	}, &controlv1.ConnectResponse{
+		Body: &controlv1.ConnectResponse_RoutePolicy{
+			RoutePolicy: exactPolicy,
+		},
+	}, model.ServiceRef{
+		Service:   "orders",
+		Namespace: "default",
+		Env:       "dev",
+	})
+	if got, want := len(batch.deliveries), 1; got != want {
+		t.Fatalf("unexpected policy broadcast batch count: got=%d want=%d", got, want)
+	}
+	if batch.deliveries[0].response.GetRoutePolicy() == nil {
+		t.Fatal("expected policy broadcast batch to keep route policy response")
+	}
+	if got, want := batch.deliveries[0].response.GetRoutePolicy().GetTimeoutMs(), uint64(1500); got != want {
+		t.Fatalf("unexpected policy timeout in broadcast batch: got=%d want=%d", got, want)
+	}
+}
+
 func TestServerShouldPushFallbackPolicyOnlyWhenItIsBestCandidate(t *testing.T) {
 	store := snapshot.NewStore()
 	fallbackPolicy := &controlv1.RoutePolicy{

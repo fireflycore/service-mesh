@@ -115,6 +115,7 @@ service
   - source watch 抽象已落地，memory provider 与 controlplane loader 已具备最小 watch bridge
   - controlplane server 已可消费 watch update，并把 source 变更主动推送给已连接 dataplane
   - consul / etcd 的 polling watch 已收敛为通用 watch runner，减少双份 watcher 骨架
+  - controlplane 内部已引入 watch manager，开始统一 tracked target 的 watch 生命周期管理
   - consul / etcd / ext_authz / telemetry 初始化等外部交互已补齐默认超时保护，避免缺环境时长时间挂起
 
 ## 设计原则

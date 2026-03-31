@@ -48,8 +48,8 @@ func NewWithLoader(store *snapshot.Store, loader *snapshot.Loader) *Server {
 		trackedTargets: make(map[string]model.ServiceRef),
 	}
 	srv.watchManager = newWatchManager(loader, func(update snapshot.WatchUpdate) {
+		target := update.Target
 		if update.Snapshot != nil {
-			target := update.Target
 			if strings.TrimSpace(target.Service) == "" && update.Snapshot.GetService() != nil {
 				target = model.ServiceRef{
 					Service:   update.Snapshot.GetService().GetService(),
@@ -59,6 +59,17 @@ func NewWithLoader(store *snapshot.Store, loader *snapshot.Loader) *Server {
 				}
 			}
 			srv.broadcastForTarget(snapshotResponse(update.Snapshot), target)
+			return
+		}
+		if update.Deleted && strings.TrimSpace(target.Service) != "" {
+			srv.broadcastForTarget(snapshotDeletedResponse(&controlv1.ServiceSnapshotDeleted{
+				Service: &controlv1.ServiceRef{
+					Service:   target.Service,
+					Namespace: target.Namespace,
+					Env:       target.Env,
+					Port:      target.Port,
+				},
+			}), target)
 		}
 	})
 	return srv

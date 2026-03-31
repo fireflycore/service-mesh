@@ -49,6 +49,10 @@ func (b *deliveryBatchBuilder) addStreamPolicy(policy *controlv1.RoutePolicy) {
 	b.addStreamResponse(routePolicyResponse(policy))
 }
 
+func (b *deliveryBatchBuilder) addStreamSnapshotDeleted(deleted *controlv1.ServiceSnapshotDeleted) {
+	b.addStreamResponse(snapshotDeletedResponse(deleted))
+}
+
 func (b *deliveryBatchBuilder) addStreamSnapshots(snapshots []*controlv1.ServiceSnapshot) {
 	for _, snapshot := range snapshots {
 		b.addStreamSnapshot(snapshot)
@@ -120,6 +124,17 @@ func routePolicyResponse(policy *controlv1.RoutePolicy) *controlv1.ConnectRespon
 	return &controlv1.ConnectResponse{
 		Body: &controlv1.ConnectResponse_RoutePolicy{
 			RoutePolicy: policy,
+		},
+	}
+}
+
+func snapshotDeletedResponse(deleted *controlv1.ServiceSnapshotDeleted) *controlv1.ConnectResponse {
+	if deleted == nil {
+		return nil
+	}
+	return &controlv1.ConnectResponse{
+		Body: &controlv1.ConnectResponse_ServiceSnapshotDeleted{
+			ServiceSnapshotDeleted: deleted,
 		},
 	}
 }

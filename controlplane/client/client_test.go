@@ -381,3 +381,108 @@ func TestClientTrackTargetTriggersSubscribeAndSnapshotSync(t *testing.T) {
 		t.Fatalf("unexpected run error: %v", err)
 	}
 }
+
+func TestClientRemovesSnapshotAfterDeletePush(t *testing.T) {
+	provider := memory.New(nil)
+	store := snapshot.NewStore()
+	loader := snapshot.NewLoader(store, provider)
+	srv := server.NewWithLoader(store, loader)
+	srv.TrackTarget(model.ServiceRef{
+		Service:   "orders",
+		Namespace: "default",
+		Env:       "dev",
+	})
+
+	bgCtx, cancelBg := context.WithCancel(context.Background())
+	defer cancelBg()
+	srv.StartBackgroundWatch(bgCtx)
+
+	grpcServer := grpc.NewServer()
+	controlv1.RegisterMeshControlPlaneServiceServer(grpcServer, srv)
+
+	listener, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatalf("listen failed: %v", err)
+	}
+	defer listener.Close()
+
+	go func() {
+		_ = grpcServer.Serve(listener)
+	}()
+	defer grpcServer.Stop()
+
+	client := New(config.ControlPlaneConfig{
+		Target:              listener.Addr().String(),
+		HeartbeatIntervalMS: 100,
+		ConnectTimeoutMS:    200,
+	})
+
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	defer cancel()
+
+	errCh := make(chan error, 1)
+	go func() {
+		errCh <- client.Run(ctx, &controlv1.DataplaneIdentity{
+			DataplaneId: "dp-delete",
+			Mode:        "agent",
+			NodeId:      "node-delete",
+			Namespace:   "default",
+			Service:     "service-mesh-agent",
+			Env:         "dev",
+		})
+	}()
+
+	provider.Upsert(model.ServiceSnapshot{
+		Service: model.ServiceRef{
+			Service:   "orders",
+			Namespace: "default",
+			Env:       "dev",
+		},
+		Endpoints: []model.Endpoint{
+			{Address: "10.0.0.50", Port: 19090, Weight: 1},
+		},
+	})
+
+	deadline := time.After(time.Second)
+	for {
+		if _, ok := client.State().ResolveSnapshot(model.ServiceRef{
+			Service:   "orders",
+			Namespace: "default",
+			Env:       "dev",
+		}); ok {
+			break
+		}
+		select {
+		case <-deadline:
+			t.Fatal("expected upserted snapshot to reach client state")
+		case <-time.After(20 * time.Millisecond):
+		}
+	}
+
+	provider.Delete(model.ServiceRef{
+		Service:   "orders",
+		Namespace: "default",
+		Env:       "dev",
+	})
+
+	deleteDeadline := time.After(time.Second)
+	for {
+		if _, ok := client.State().ResolveSnapshot(model.ServiceRef{
+			Service:   "orders",
+			Namespace: "default",
+			Env:       "dev",
+		}); !ok {
+			cancel()
+			break
+		}
+		select {
+		case <-deleteDeadline:
+			t.Fatal("expected delete push to remove snapshot from client state")
+		case <-time.After(20 * time.Millisecond):
+		}
+	}
+
+	if err := <-errCh; err != nil && err != context.Canceled {
+		t.Fatalf("unexpected run error: %v", err)
+	}
+}

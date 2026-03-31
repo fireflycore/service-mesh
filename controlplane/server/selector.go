@@ -260,9 +260,28 @@ func selectorFromResponse(resp *controlv1.ConnectResponse, fallbackTarget model.
 		if snapshot := body.ServiceSnapshot; snapshot != nil {
 			return selectorFromSnapshot(snapshot, fallbackTarget, selector.requireSubscription)
 		}
+	case *controlv1.ConnectResponse_ServiceSnapshotDeleted:
+		if deleted := body.ServiceSnapshotDeleted; deleted != nil {
+			return selectorFromSnapshotDeleted(deleted, fallbackTarget, selector.requireSubscription)
+		}
 	case *controlv1.ConnectResponse_RoutePolicy:
 		if policy := body.RoutePolicy; policy != nil {
 			return selectorFromRoutePolicy(policy, fallbackTarget, true)
+		}
+	}
+	return selector
+}
+
+func selectorFromSnapshotDeleted(deleted *controlv1.ServiceSnapshotDeleted, fallbackTarget model.ServiceRef, requireSubscription bool) resourceSelector {
+	selector := resourceSelector{
+		target:              fallbackTarget,
+		requireSubscription: requireSubscription,
+	}
+	if deleted != nil {
+		selector.service = deleted.GetService()
+		if strings.TrimSpace(selector.target.Service) == "" && deleted.GetService() != nil {
+			selector.target = toModelTarget(deleted.GetService())
+			selector.requireSubscription = true
 		}
 	}
 	return selector

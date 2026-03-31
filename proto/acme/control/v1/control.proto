@@ -44,6 +44,11 @@ message ServiceSnapshot {
   string revision = 3;
 }
 
+message ServiceSnapshotDeleted {
+  ServiceRef service = 1;
+  string revision = 2;
+}
+
 message RetryPolicy {
   uint32 max_attempts = 1;
   uint64 per_try_timeout_ms = 2;
@@ -67,6 +72,7 @@ message ConnectResponse {
   oneof body {
     ServiceSnapshot service_snapshot = 1;
     RoutePolicy route_policy = 2;
+    ServiceSnapshotDeleted service_snapshot_deleted = 3;
   }
 }
 

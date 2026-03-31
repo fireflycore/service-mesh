@@ -58,6 +58,9 @@ func (d deliveryCycle) AllowsResponse(subscriber *subscriber, resp *controlv1.Co
 	if snapshot := resp.GetServiceSnapshot(); snapshot != nil {
 		return d.AllowsSnapshot(subscriber, snapshot)
 	}
+	if deleted := resp.GetServiceSnapshotDeleted(); deleted != nil {
+		return true
+	}
 	if policy := resp.GetRoutePolicy(); policy != nil {
 		return d.AllowsPolicy(subscriber, policy)
 	}

@@ -44,6 +44,24 @@ func (s *State) SetSnapshot(snapshot *controlv1.ServiceSnapshot) {
 	s.lastSnapshot = snapshot
 }
 
+func (s *State) DeleteSnapshot(service *controlv1.ServiceRef) {
+	if service == nil {
+		return
+	}
+
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	if s.snapshots != nil {
+		delete(s.snapshots, serviceKey(service.GetNamespace(), service.GetEnv(), service.GetService()))
+	}
+	if s.lastSnapshot != nil && s.lastSnapshot.GetService() != nil &&
+		serviceKey(s.lastSnapshot.GetService().GetNamespace(), s.lastSnapshot.GetService().GetEnv(), s.lastSnapshot.GetService().GetService()) ==
+			serviceKey(service.GetNamespace(), service.GetEnv(), service.GetService()) {
+		s.lastSnapshot = nil
+	}
+}
+
 // SetRoutePolicy 写入并覆盖指定服务的最新策略。
 func (s *State) SetRoutePolicy(policy *controlv1.RoutePolicy) {
 	if policy == nil || policy.GetService() == nil {
@@ -324,6 +342,8 @@ func (c *Client) recvLoop(stream grpc.BidiStreamingClient[controlv1.ConnectReque
 		case *controlv1.ConnectResponse_ServiceSnapshot:
 			// 服务快照主要影响 resolver/source overlay。
 			c.state.SetSnapshot(body.ServiceSnapshot)
+		case *controlv1.ConnectResponse_ServiceSnapshotDeleted:
+			c.state.DeleteSnapshot(body.ServiceSnapshotDeleted.GetService())
 		case *controlv1.ConnectResponse_RoutePolicy:
 			// 路由策略主要影响 invoke timeout/retry。
 			c.state.SetRoutePolicy(body.RoutePolicy)

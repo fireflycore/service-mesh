@@ -119,6 +119,7 @@ service
   - snapshot delete 已有显式 control 消息，watch delete 现在能真正从 controlplane 推到 dataplane 并删除本地状态
   - snapshot status 已支持 `current / stale / degraded`，为 source 不可达时的降级语义打底
   - dataplane 已显式消费 `stale / degraded`：stale 可继续路由，degraded 会拒绝调用或回退原始 source
+  - polling watch 已支持 `stale -> degraded` 升级，watch manager 也开始具备自动重建能力
   - consul / etcd / ext_authz / telemetry 初始化等外部交互已补齐默认超时保护，避免缺环境时长时间挂起
 
 ## 设计原则

@@ -2,6 +2,7 @@ package server
 
 import (
 	"context"
+	"errors"
 	"net"
 	"sync"
 	"testing"
@@ -10,6 +11,7 @@ import (
 	controlv1 "github.com/fireflycore/service-mesh/.gen/proto/acme/control/v1"
 	"github.com/fireflycore/service-mesh/controlplane/snapshot"
 	"github.com/fireflycore/service-mesh/pkg/model"
+	"github.com/fireflycore/service-mesh/source"
 	"github.com/fireflycore/service-mesh/source/memory"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials/insecure"
@@ -37,6 +39,78 @@ func (p *sequenceProvider) Resolve(_ context.Context, target model.ServiceRef) (
 	}
 	p.counts[key]++
 	return versions[index], nil
+}
+
+type restartingWatchProvider struct {
+	mu       sync.Mutex
+	watchers []chan source.WatchEvent
+	watches  int
+}
+
+func (p *restartingWatchProvider) Name() string {
+	return "restarting-watch"
+}
+
+func (p *restartingWatchProvider) Resolve(context.Context, model.ServiceRef) (model.ServiceSnapshot, error) {
+	return model.ServiceSnapshot{}, errors.New("not implemented")
+}
+
+func (p *restartingWatchProvider) Watch(ctx context.Context, target model.ServiceRef) (source.WatchStream, error) {
+	p.mu.Lock()
+	p.watches++
+	watchIndex := p.watches
+	ch := make(chan source.WatchEvent, 8)
+	if watchIndex > 1 {
+		p.watchers = append(p.watchers, ch)
+	}
+	p.mu.Unlock()
+
+	if watchIndex == 1 {
+		close(ch)
+	}
+
+	stream := &testWatchStream{events: ch}
+	go func() {
+		<-ctx.Done()
+		_ = stream.Close()
+	}()
+	return stream, nil
+}
+
+func (p *restartingWatchProvider) Upsert(snapshot model.ServiceSnapshot) {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+
+	event := source.WatchEvent{
+		Kind:     source.WatchEventUpsert,
+		Target:   snapshot.Service,
+		Snapshot: snapshot,
+	}
+	for _, ch := range p.watchers {
+		select {
+		case ch <- event:
+		default:
+		}
+	}
+}
+
+type testWatchStream struct {
+	events chan source.WatchEvent
+	once   sync.Once
+}
+
+func (s *testWatchStream) Events() <-chan source.WatchEvent {
+	return s.events
+}
+
+func (s *testWatchStream) Close() error {
+	s.once.Do(func() {
+		defer func() {
+			recover()
+		}()
+		close(s.events)
+	})
+	return nil
 }
 
 // TestServerConnectSendsSnapshotAndPolicy 验证 register 后会收到基础控制面状态。
@@ -1885,6 +1959,55 @@ func TestServerBackgroundWatchPushesSnapshotDelete(t *testing.T) {
 		case <-deleteDeadline:
 			t.Fatal("expected snapshot delete push")
 		default:
+		}
+	}
+}
+
+func TestServerBackgroundWatchRestartsAfterWatchStreamCloses(t *testing.T) {
+	provider := &restartingWatchProvider{}
+	store := snapshot.NewStore()
+	loader := snapshot.NewLoader(store, provider)
+	updates := make(chan snapshot.WatchUpdate, 1)
+	manager := newWatchManager(loader, func(update snapshot.WatchUpdate) {
+		select {
+		case updates <- update:
+		default:
+		}
+	})
+
+	bgCtx, cancelBg := context.WithCancel(context.Background())
+	defer cancelBg()
+	manager.Start(bgCtx, nil)
+	manager.Track(model.ServiceRef{
+		Service:   "orders",
+		Namespace: "default",
+		Env:       "dev",
+	})
+
+	time.Sleep(watchRestartBackoff * 2)
+	provider.Upsert(model.ServiceSnapshot{
+		Service: model.ServiceRef{
+			Service:   "orders",
+			Namespace: "default",
+			Env:       "dev",
+		},
+		Endpoints: []model.Endpoint{
+			{Address: "10.0.0.26", Port: 19090, Weight: 1},
+		},
+	})
+
+	deadline := time.After(time.Second)
+	for {
+		select {
+		case update := <-updates:
+			if update.Snapshot != nil && update.Snapshot.GetService().GetService() == "orders" {
+				if got, want := update.Snapshot.GetEndpoints()[0].GetAddress(), "10.0.0.26"; got != want {
+					t.Fatalf("unexpected restarted-watch snapshot address: got=%s want=%s", got, want)
+				}
+				return
+			}
+		case <-deadline:
+			t.Fatal("expected restarted watch to push snapshot")
 		}
 	}
 }

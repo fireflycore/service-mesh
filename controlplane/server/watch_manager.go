@@ -4,6 +4,7 @@ import (
 	"context"
 	"strings"
 	"sync"
+	"time"
 
 	"github.com/fireflycore/service-mesh/controlplane/snapshot"
 	"github.com/fireflycore/service-mesh/pkg/model"
@@ -17,6 +18,8 @@ type watchManager struct {
 	rootCtx context.Context
 	active  map[string]context.CancelFunc
 }
+
+const watchRestartBackoff = 200 * time.Millisecond
 
 func newWatchManager(loader *snapshot.Loader, onUpdate func(snapshot.WatchUpdate)) *watchManager {
 	return &watchManager{
@@ -61,12 +64,8 @@ func (m *watchManager) Track(target model.ServiceRef) {
 	m.mu.Unlock()
 
 	updates, err := m.loader.Watch(watchCtx, target)
-	if err != nil || updates == nil {
-		cancel()
-		m.mu.Lock()
-		delete(m.active, key)
-		m.mu.Unlock()
-		return
+	if err != nil {
+		updates = nil
 	}
 
 	go func() {
@@ -77,18 +76,64 @@ func (m *watchManager) Track(target model.ServiceRef) {
 			m.mu.Unlock()
 		}()
 
-		for {
-			select {
-			case <-watchCtx.Done():
-				return
-			case update, ok := <-updates:
-				if !ok {
+		currentUpdates := updates
+		for watchCtx.Err() == nil {
+			if currentUpdates == nil {
+				if !waitWatchRestart(watchCtx) {
 					return
 				}
-				if m.onUpdate != nil {
-					m.onUpdate(update)
+				var watchErr error
+				currentUpdates, watchErr = m.loader.Watch(watchCtx, target)
+				if watchErr != nil {
+					currentUpdates = nil
 				}
+				if currentUpdates == nil {
+					continue
+				}
+			}
+
+			restart := false
+			for {
+				select {
+				case <-watchCtx.Done():
+					return
+				case update, ok := <-currentUpdates:
+					if !ok {
+						restart = true
+						currentUpdates = nil
+						break
+					}
+					if m.onUpdate != nil {
+						m.onUpdate(update)
+					}
+				}
+				if restart {
+					break
+				}
+			}
+			if !restart {
+				continue
+			}
+			if !waitWatchRestart(watchCtx) {
+				return
+			}
+			var watchErr error
+			currentUpdates, watchErr = m.loader.Watch(watchCtx, target)
+			if watchErr != nil {
+				currentUpdates = nil
 			}
 		}
 	}()
+}
+
+func waitWatchRestart(ctx context.Context) bool {
+	timer := time.NewTimer(watchRestartBackoff)
+	defer timer.Stop()
+
+	select {
+	case <-ctx.Done():
+		return false
+	case <-timer.C:
+		return true
+	}
 }

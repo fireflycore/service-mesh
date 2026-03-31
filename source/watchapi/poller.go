@@ -10,6 +10,8 @@ import (
 
 type SnapshotPoller func(context.Context) (model.ServiceSnapshot, bool, error)
 
+const defaultDegradeAfterConsecutiveErrors = 3
+
 func RunPolling(ctx context.Context, interval time.Duration, target model.ServiceRef, poll SnapshotPoller) Stream {
 	if interval <= 0 {
 		interval = time.Second
@@ -26,9 +28,29 @@ func RunPolling(ctx context.Context, interval time.Duration, target model.Servic
 		var hasCurrent bool
 		var emitted model.ServiceSnapshot
 		var hasEmitted bool
+		consecutiveErrors := 0
 		run := func() {
 			snapshot, found, err := poll(ctx)
 			if err != nil {
+				consecutiveErrors++
+				if consecutiveErrors >= defaultDegradeAfterConsecutiveErrors {
+					degraded := current
+					if !hasCurrent {
+						degraded = model.ServiceSnapshot{Service: target}
+					}
+					degraded.Status = model.SnapshotStatusDegraded
+					degraded.StatusReason = err.Error()
+					if !hasEmitted || !reflect.DeepEqual(emitted, degraded) {
+						emitted = degraded
+						hasEmitted = true
+						stream.publish(Event{
+							Kind:     EventUpsert,
+							Target:   degraded.Service,
+							Snapshot: degraded,
+						})
+					}
+					return
+				}
 				if hasCurrent {
 					stale := current
 					stale.Status = model.SnapshotStatusStale
@@ -45,6 +67,7 @@ func RunPolling(ctx context.Context, interval time.Duration, target model.Servic
 				}
 				return
 			}
+			consecutiveErrors = 0
 			if !found {
 				if hasEmitted {
 					hasCurrent = false

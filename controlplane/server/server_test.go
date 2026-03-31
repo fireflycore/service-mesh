@@ -878,6 +878,44 @@ func TestArbitrationCacheReusesIdentityScopedArbitrator(t *testing.T) {
 	}
 }
 
+func TestDeliveryCycleReusesCachedArbitrationAcrossAccessors(t *testing.T) {
+	store := snapshot.NewStore()
+	store.PutServiceSnapshot(&controlv1.ServiceSnapshot{
+		Service: &controlv1.ServiceRef{
+			Service:   "orders",
+			Namespace: "default",
+			Env:       "dev",
+		},
+		Endpoints: []*controlv1.Endpoint{
+			{Address: "10.0.0.10", Port: 19090, Weight: 1},
+		},
+	})
+	store.PutRoutePolicy(&controlv1.RoutePolicy{
+		Service: &controlv1.ServiceRef{
+			Service:   "orders",
+			Namespace: "default",
+			Env:       "dev",
+		},
+		TimeoutMs: 1500,
+	})
+
+	cycle := newDeliveryCycle(store)
+	identity := &controlv1.DataplaneIdentity{
+		Namespace:   "default",
+		Env:         "dev",
+		DataplaneId: "dp-1",
+		NodeId:      "node-1",
+	}
+	sub := &subscriber{identity: identity}
+
+	_ = cycle.ForIdentity(identity)
+	_ = cycle.ForSubscriber(sub)
+
+	if got, want := len(cycle.cache.byKey), 1; got != want {
+		t.Fatalf("unexpected cached arbitrator count: got=%d want=%d", got, want)
+	}
+}
+
 func TestServerShouldPushFallbackPolicyOnlyWhenItIsBestCandidate(t *testing.T) {
 	store := snapshot.NewStore()
 	fallbackPolicy := &controlv1.RoutePolicy{
@@ -898,7 +936,7 @@ func TestServerShouldPushFallbackPolicyOnlyWhenItIsBestCandidate(t *testing.T) {
 	store.PutRoutePolicy(fallbackPolicy)
 	store.PutRoutePolicy(exactPolicy)
 
-	srv := New(store)
+	cycle := newDeliveryCycle(store)
 	sub := &subscriber{
 		identity: &controlv1.DataplaneIdentity{
 			Namespace: "default",
@@ -913,10 +951,10 @@ func TestServerShouldPushFallbackPolicyOnlyWhenItIsBestCandidate(t *testing.T) {
 		},
 	}
 
-	if srv.shouldPushPolicyToSubscriber(newArbitrationCache(store.AllServiceSnapshots(), store.AllRoutePolicies()), sub, fallbackPolicy) {
+	if cycle.AllowsPolicy(sub, fallbackPolicy) {
 		t.Fatal("expected fallback policy to be skipped when exact policy exists")
 	}
-	if !srv.shouldPushPolicyToSubscriber(newArbitrationCache(store.AllServiceSnapshots(), store.AllRoutePolicies()), sub, exactPolicy) {
+	if !cycle.AllowsPolicy(sub, exactPolicy) {
 		t.Fatal("expected exact policy to be selected for subscriber")
 	}
 }
@@ -947,7 +985,7 @@ func TestServerShouldPushFallbackSnapshotOnlyWhenItIsBestCandidate(t *testing.T)
 	store.PutServiceSnapshot(fallbackSnapshot)
 	store.PutServiceSnapshot(exactSnapshot)
 
-	srv := New(store)
+	cycle := newDeliveryCycle(store)
 	sub := &subscriber{
 		identity: &controlv1.DataplaneIdentity{
 			Namespace: "default",
@@ -962,12 +1000,12 @@ func TestServerShouldPushFallbackSnapshotOnlyWhenItIsBestCandidate(t *testing.T)
 		},
 	}
 
-	if srv.shouldPushSnapshotToSubscriber(newArbitrationCache(store.AllServiceSnapshots(), store.AllRoutePolicies()), sub, &controlv1.ConnectResponse{
+	if cycle.AllowsResponse(sub, &controlv1.ConnectResponse{
 		Body: &controlv1.ConnectResponse_ServiceSnapshot{ServiceSnapshot: fallbackSnapshot},
 	}) {
 		t.Fatal("expected fallback snapshot to be skipped when exact snapshot exists")
 	}
-	if !srv.shouldPushSnapshotToSubscriber(newArbitrationCache(store.AllServiceSnapshots(), store.AllRoutePolicies()), sub, &controlv1.ConnectResponse{
+	if !cycle.AllowsResponse(sub, &controlv1.ConnectResponse{
 		Body: &controlv1.ConnectResponse_ServiceSnapshot{ServiceSnapshot: exactSnapshot},
 	}) {
 		t.Fatal("expected exact snapshot to be selected for subscriber")

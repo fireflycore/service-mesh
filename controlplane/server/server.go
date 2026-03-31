@@ -134,8 +134,8 @@ func (s *Server) handleRegister(stream grpc.BidiStreamingServer[controlv1.Connec
 		return nil
 	}
 	identity := register.GetIdentity()
-	cache := newArbitrationCache(s.store.AllServiceSnapshots(), s.store.AllRoutePolicies())
-	arbitrator := cache.ForIdentity(identity)
+	cycle := newDeliveryCycle(s.store)
+	arbitrator := cycle.ForIdentity(identity)
 
 	for _, serviceSnapshot := range arbitrator.SelectedSnapshots() {
 		// 第十四版开始，register 后优先回放控制面当前已知的全部快照，
@@ -200,8 +200,8 @@ func (s *Server) handleSubscribe(stream grpc.BidiStreamingServer[controlv1.Conne
 	s.updateSubscriberTargets(subscriberID, targets)
 	subscriber := s.lookupSubscriber(subscriberID)
 	selector := selectorFromSubscriber(subscriber)
-	cache := newArbitrationCache(s.store.AllServiceSnapshots(), s.store.AllRoutePolicies())
-	arbitrator := cache.ForIdentity(selector.identity)
+	cycle := newDeliveryCycle(s.store)
+	arbitrator := cycle.ForIdentity(selector.identity)
 
 	changedKeys := make(map[string]struct{})
 	if s.loader != nil {
@@ -391,12 +391,12 @@ func (s *Server) broadcastRoutePolicy(policy *controlv1.RoutePolicy, target mode
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 
-	cache := newArbitrationCache(s.store.AllServiceSnapshots(), s.store.AllRoutePolicies())
+	cycle := newDeliveryCycle(s.store)
 	for _, subscriber := range s.subscribers {
 		if !matchesSelectors(selectorFromSubscriber(subscriber), selectorFromRoutePolicy(policy, target, true)) {
 			continue
 		}
-		if !s.shouldPushPolicyToSubscriber(cache, subscriber, policy) {
+		if !cycle.AllowsPolicy(subscriber, policy) {
 			continue
 		}
 		select {
@@ -415,12 +415,12 @@ func (s *Server) broadcastForTarget(resp *controlv1.ConnectResponse, target mode
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 
-	cache := newArbitrationCache(s.store.AllServiceSnapshots(), s.store.AllRoutePolicies())
+	cycle := newDeliveryCycle(s.store)
 	for _, subscriber := range s.subscribers {
 		if !matchesSelectors(selectorFromSubscriber(subscriber), resource) {
 			continue
 		}
-		if !s.shouldPushSnapshotToSubscriber(cache, subscriber, resp) {
+		if !cycle.AllowsResponse(subscriber, resp) {
 			continue
 		}
 		select {
@@ -443,31 +443,6 @@ func (s *Server) trackedTargetList() []model.ServiceRef {
 
 func targetKey(target model.ServiceRef) string {
 	return target.Namespace + "/" + target.Env + "/" + target.Service
-}
-
-func (s *Server) shouldPushPolicyToSubscriber(cache *arbitrationCache, subscriber *subscriber, policy *controlv1.RoutePolicy) bool {
-	if policy == nil || policy.GetService() == nil {
-		return false
-	}
-	return s.arbitratorForSubscriber(cache, subscriber).AllowsPolicy(policy)
-}
-
-func (s *Server) shouldPushSnapshotToSubscriber(cache *arbitrationCache, subscriber *subscriber, resp *controlv1.ConnectResponse) bool {
-	if resp == nil || resp.GetServiceSnapshot() == nil {
-		return true
-	}
-	snapshot := resp.GetServiceSnapshot()
-	if snapshot.GetService() == nil {
-		return false
-	}
-	return s.arbitratorForSubscriber(cache, subscriber).AllowsSnapshot(snapshot)
-}
-
-func (s *Server) arbitratorForSubscriber(cache *arbitrationCache, subscriber *subscriber) resourceArbitrator {
-	if cache == nil {
-		return resourceArbitrator{}
-	}
-	return cache.ForSubscriber(subscriber)
 }
 
 func (s *Server) updateSubscriberIdentity(id uint64, identity *controlv1.DataplaneIdentity) {

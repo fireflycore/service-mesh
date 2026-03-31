@@ -12,89 +12,6 @@ type deliveryCycle struct {
 	deliveredPolicyKeys map[string]struct{}
 }
 
-type plannedDelivery struct {
-	pushCh   chan *controlv1.ConnectResponse
-	response *controlv1.ConnectResponse
-}
-
-type deliveryBatch struct {
-	streamResponses []*controlv1.ConnectResponse
-	deliveries      []plannedDelivery
-}
-
-func newDeliveryBatch(streamCapacity, deliveryCapacity int) deliveryBatch {
-	if streamCapacity < 0 {
-		streamCapacity = 0
-	}
-	if deliveryCapacity < 0 {
-		deliveryCapacity = 0
-	}
-	return deliveryBatch{
-		streamResponses: make([]*controlv1.ConnectResponse, 0, streamCapacity),
-		deliveries:      make([]plannedDelivery, 0, deliveryCapacity),
-	}
-}
-
-func (b *deliveryBatch) addStreamResponse(resp *controlv1.ConnectResponse) {
-	if b == nil || resp == nil {
-		return
-	}
-	b.streamResponses = append(b.streamResponses, resp)
-}
-
-func (b *deliveryBatch) addStreamSnapshot(snapshot *controlv1.ServiceSnapshot) {
-	if snapshot == nil {
-		return
-	}
-	b.addStreamResponse(snapshotResponse(snapshot))
-}
-
-func (b *deliveryBatch) addStreamPolicy(policy *controlv1.RoutePolicy) {
-	if policy == nil {
-		return
-	}
-	b.addStreamResponse(routePolicyResponse(policy))
-}
-
-func (b *deliveryBatch) addDeliveries(deliveries []plannedDelivery) {
-	if b == nil || len(deliveries) == 0 {
-		return
-	}
-	b.deliveries = append(b.deliveries, deliveries...)
-}
-
-func (b *deliveryBatch) addPlannedDelivery(pushCh chan *controlv1.ConnectResponse, resp *controlv1.ConnectResponse) {
-	if b == nil || pushCh == nil || resp == nil {
-		return
-	}
-	b.deliveries = append(b.deliveries, plannedDelivery{
-		pushCh:   pushCh,
-		response: resp,
-	})
-}
-
-func snapshotResponse(snapshot *controlv1.ServiceSnapshot) *controlv1.ConnectResponse {
-	if snapshot == nil {
-		return nil
-	}
-	return &controlv1.ConnectResponse{
-		Body: &controlv1.ConnectResponse_ServiceSnapshot{
-			ServiceSnapshot: snapshot,
-		},
-	}
-}
-
-func routePolicyResponse(policy *controlv1.RoutePolicy) *controlv1.ConnectResponse {
-	if policy == nil {
-		return nil
-	}
-	return &controlv1.ConnectResponse{
-		Body: &controlv1.ConnectResponse_RoutePolicy{
-			RoutePolicy: policy,
-		},
-	}
-}
-
 func newDeliveryCycle(store *snapshot.Store) deliveryCycle {
 	if store == nil {
 		return deliveryCycle{
@@ -217,51 +134,41 @@ func (d deliveryCycle) RememberChangedSnapshots(changed []*controlv1.ServiceSnap
 	}
 }
 
-func (d deliveryCycle) SubscribeResponses(subscriber *subscriber, targets []model.ServiceRef, changed []*controlv1.ServiceSnapshot) []*controlv1.ConnectResponse {
+func (d deliveryCycle) SubscribeBatch(subscriber *subscriber, targets []model.ServiceRef, changed []*controlv1.ServiceSnapshot) deliveryBatch {
 	d.RememberChangedSnapshots(changed)
 
-	batch := newDeliveryBatch(len(changed)+len(targets)*2, 0)
+	builder := newDeliveryBatchBuilder(len(changed)+len(targets)*2, 0)
 	for _, snapshot := range changed {
-		batch.addStreamSnapshot(snapshot)
+		builder.addStreamSnapshot(snapshot)
 	}
 
 	for _, target := range targets {
 		if snapshot := d.SnapshotForSubscribeTarget(subscriber, target); snapshot != nil {
-			batch.addStreamSnapshot(snapshot)
+			builder.addStreamSnapshot(snapshot)
 		}
 
 		if policy := d.PolicyForSubscribeTarget(subscriber, target); policy != nil {
-			batch.addStreamPolicy(policy)
+			builder.addStreamPolicy(policy)
 		}
 	}
 
-	return batch.streamResponses
+	return builder.build()
 }
 
 func (d deliveryCycle) RegisterBatch(identity *controlv1.DataplaneIdentity) deliveryBatch {
 	arbitrator := d.ForIdentity(identity)
-	batch := newDeliveryBatch(len(arbitrator.SelectedSnapshots())+len(arbitrator.SelectedPolicies()), 0)
-	for _, serviceSnapshot := range arbitrator.SelectedSnapshots() {
-		batch.addStreamSnapshot(serviceSnapshot)
-	}
-	for _, routePolicy := range arbitrator.SelectedPolicies() {
-		batch.addStreamPolicy(routePolicy)
-	}
-	return batch
+	builder := newDeliveryBatchBuilder(len(arbitrator.SelectedSnapshots())+len(arbitrator.SelectedPolicies()), 0)
+	builder.addStreamSnapshots(arbitrator.SelectedSnapshots())
+	builder.addStreamPolicies(arbitrator.SelectedPolicies())
+	return builder.build()
 }
 
-func (d deliveryCycle) SubscribeBatch(subscriber *subscriber, targets []model.ServiceRef, changed []*controlv1.ServiceSnapshot) deliveryBatch {
-	return deliveryBatch{
-		streamResponses: d.SubscribeResponses(subscriber, targets, changed),
-	}
-}
-
-func (d deliveryCycle) PlanTargetResponse(subscribers map[uint64]*subscriber, resp *controlv1.ConnectResponse, target model.ServiceRef) []plannedDelivery {
+func (d deliveryCycle) TargetBroadcastBatch(subscribers map[uint64]*subscriber, resp *controlv1.ConnectResponse, target model.ServiceRef) deliveryBatch {
 	if len(subscribers) == 0 || resp == nil {
-		return nil
+		return deliveryBatch{}
 	}
 
-	batch := newDeliveryBatch(0, len(subscribers))
+	builder := newDeliveryBatchBuilder(0, len(subscribers))
 	for _, subscriber := range subscribers {
 		if subscriber == nil || subscriber.pushCh == nil {
 			continue
@@ -269,15 +176,9 @@ func (d deliveryCycle) PlanTargetResponse(subscribers map[uint64]*subscriber, re
 		if !d.AllowsTargetResponse(subscriber, resp, target) {
 			continue
 		}
-		batch.addPlannedDelivery(subscriber.pushCh, resp)
+		builder.addPushResponse(subscriber.pushCh, resp)
 	}
-	return batch.deliveries
-}
-
-func (d deliveryCycle) TargetBroadcastBatch(subscribers map[uint64]*subscriber, resp *controlv1.ConnectResponse, target model.ServiceRef) deliveryBatch {
-	return deliveryBatch{
-		deliveries: d.PlanTargetResponse(subscribers, resp, target),
-	}
+	return builder.build()
 }
 
 func (d deliveryCycle) AllowsTargetResponse(subscriber *subscriber, resp *controlv1.ConnectResponse, target model.ServiceRef) bool {
@@ -285,11 +186,4 @@ func (d deliveryCycle) AllowsTargetResponse(subscriber *subscriber, resp *contro
 		return false
 	}
 	return d.AllowsResponse(subscriber, resp)
-}
-
-func (d deliveryCycle) AllowsTargetPolicy(subscriber *subscriber, policy *controlv1.RoutePolicy, target model.ServiceRef) bool {
-	if !matchesSelectors(selectorFromSubscriber(subscriber), selectorFromRoutePolicy(policy, target, true)) {
-		return false
-	}
-	return d.AllowsPolicy(subscriber, policy)
 }

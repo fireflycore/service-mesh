@@ -1048,7 +1048,7 @@ func TestDeliveryCycleSubscribeHelpersHideChangedSnapshotAndDeduplicatePolicy(t 
 	}
 }
 
-func TestDeliveryCycleSubscribeResponsesBuildExpectedStreamPayloads(t *testing.T) {
+func TestDeliveryCycleSubscribeBatchBuildsExpectedStreamPayloads(t *testing.T) {
 	store := snapshot.NewStore()
 	store.PutRoutePolicy(&controlv1.RoutePolicy{
 		Service: &controlv1.ServiceRef{
@@ -1087,18 +1087,18 @@ func TestDeliveryCycleSubscribeResponsesBuildExpectedStreamPayloads(t *testing.T
 		},
 	}
 
-	responses := cycle.SubscribeResponses(sub, []model.ServiceRef{{
+	batch := cycle.SubscribeBatch(sub, []model.ServiceRef{{
 		Service:   "orders",
 		Namespace: "default",
 		Env:       "dev",
 	}}, changed)
-	if got, want := len(responses), 2; got != want {
+	if got, want := len(batch.streamResponses), 2; got != want {
 		t.Fatalf("unexpected subscribe response count: got=%d want=%d", got, want)
 	}
-	if responses[0].GetServiceSnapshot() == nil {
+	if batch.streamResponses[0].GetServiceSnapshot() == nil {
 		t.Fatal("expected first subscribe response to be changed snapshot")
 	}
-	if responses[1].GetRoutePolicy() == nil {
+	if batch.streamResponses[1].GetRoutePolicy() == nil {
 		t.Fatal("expected second subscribe response to be route policy")
 	}
 }
@@ -1140,17 +1140,17 @@ func TestDeliveryCycleRegisterBatchBuildsReplayPayloads(t *testing.T) {
 }
 
 func TestDeliveryBatchBuilderSkipsNilAndPreservesOrder(t *testing.T) {
-	batch := newDeliveryBatch(4, 2)
-	batch.addStreamSnapshot(nil)
-	batch.addStreamPolicy(nil)
-	batch.addStreamSnapshot(&controlv1.ServiceSnapshot{
+	builder := newDeliveryBatchBuilder(4, 2)
+	builder.addStreamSnapshot(nil)
+	builder.addStreamPolicy(nil)
+	builder.addStreamSnapshot(&controlv1.ServiceSnapshot{
 		Service: &controlv1.ServiceRef{
 			Service:   "orders",
 			Namespace: "default",
 			Env:       "dev",
 		},
 	})
-	batch.addStreamPolicy(&controlv1.RoutePolicy{
+	builder.addStreamPolicy(&controlv1.RoutePolicy{
 		Service: &controlv1.ServiceRef{
 			Service:   "orders",
 			Namespace: "default",
@@ -1158,6 +1158,7 @@ func TestDeliveryBatchBuilderSkipsNilAndPreservesOrder(t *testing.T) {
 		},
 		TimeoutMs: 1500,
 	})
+	batch := builder.build()
 
 	if got, want := len(batch.streamResponses), 2; got != want {
 		t.Fatalf("unexpected batch stream response count: got=%d want=%d", got, want)
@@ -1167,6 +1168,53 @@ func TestDeliveryBatchBuilderSkipsNilAndPreservesOrder(t *testing.T) {
 	}
 	if batch.streamResponses[1].GetRoutePolicy() == nil {
 		t.Fatal("expected policy response to stay second")
+	}
+}
+
+func TestDeliveryBatchBuilderAddsCollectionsAndPushResponses(t *testing.T) {
+	builder := newDeliveryBatchBuilder(4, 2)
+	pushCh := make(chan *controlv1.ConnectResponse, 1)
+
+	builder.addStreamSnapshots([]*controlv1.ServiceSnapshot{
+		nil,
+		{
+			Service: &controlv1.ServiceRef{
+				Service:   "orders",
+				Namespace: "default",
+				Env:       "dev",
+			},
+		},
+	})
+	builder.addStreamPolicies([]*controlv1.RoutePolicy{
+		nil,
+		{
+			Service: &controlv1.ServiceRef{
+				Service:   "orders",
+				Namespace: "default",
+				Env:       "dev",
+			},
+			TimeoutMs: 1500,
+		},
+	})
+	builder.addPushResponse(pushCh, nil)
+	builder.addPushResponse(pushCh, routePolicyResponse(&controlv1.RoutePolicy{
+		Service: &controlv1.ServiceRef{
+			Service:   "orders",
+			Namespace: "default",
+			Env:       "dev",
+		},
+		TimeoutMs: 1500,
+	}))
+
+	batch := builder.build()
+	if got, want := len(batch.streamResponses), 2; got != want {
+		t.Fatalf("unexpected builder stream response count: got=%d want=%d", got, want)
+	}
+	if got, want := len(batch.deliveries), 1; got != want {
+		t.Fatalf("unexpected builder delivery count: got=%d want=%d", got, want)
+	}
+	if batch.deliveries[0].response.GetRoutePolicy() == nil {
+		t.Fatal("expected push response to keep route policy payload")
 	}
 }
 
@@ -1215,7 +1263,7 @@ func TestDeliveryCycleBuildsTargetedBroadcastPlan(t *testing.T) {
 		},
 	}
 
-	deliveries := cycle.PlanTargetResponse(map[uint64]*subscriber{
+	batch := cycle.TargetBroadcastBatch(map[uint64]*subscriber{
 		1: allowed,
 		2: blocked,
 	}, &controlv1.ConnectResponse{
@@ -1227,7 +1275,7 @@ func TestDeliveryCycleBuildsTargetedBroadcastPlan(t *testing.T) {
 		Namespace: "default",
 		Env:       "dev",
 	})
-	if got, want := len(deliveries), 1; got != want {
+	if got, want := len(batch.deliveries), 1; got != want {
 		t.Fatalf("unexpected targeted delivery count: got=%d want=%d", got, want)
 	}
 }

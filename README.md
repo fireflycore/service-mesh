@@ -110,6 +110,8 @@ service
   - register / subscribe / push 三条路径开始复用统一 delivery batch 模型，stream 回放与异步推送的输出形态继续收敛
   - route policy 主动推送也已并入通用 response / batch 路径，减少独立 push 分支
   - delivery batch 已开始内聚 response / delivery 追加逻辑，为后续 builder / planner 继续演进打底
+  - subscribe response 与 target broadcast plan 已直接由 batch builder 构造，`server.go` 进一步退回调度职责
+  - batch builder 已补齐集合追加与 push response 入口，旧的零散 helper 继续收口
   - consul / etcd / ext_authz / telemetry 初始化等外部交互已补齐默认超时保护，避免缺环境时长时间挂起
 
 ## 设计原则

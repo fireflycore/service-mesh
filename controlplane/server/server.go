@@ -133,7 +133,7 @@ func (s *Server) handleRegister(stream grpc.BidiStreamingServer[controlv1.Connec
 	if register == nil || register.GetIdentity() == nil {
 		return nil
 	}
-	return sendStreamBatch(stream, newDeliveryCycle(s.store).RegisterBatch(register.GetIdentity()))
+	return newDeliveryCycle(s.store).RegisterBatch(register.GetIdentity()).Send(stream)
 }
 
 // handleHeartbeat 为后续更复杂的控制面状态机保留入口。
@@ -182,7 +182,7 @@ func (s *Server) handleSubscribe(stream grpc.BidiStreamingServer[controlv1.Conne
 		}
 	}
 
-	return sendStreamBatch(stream, cycle.SubscribeBatch(subscriber, targets, changed))
+	return cycle.SubscribeBatch(subscriber, targets, changed).Send(stream)
 }
 
 // TrackTarget 把目标服务加入控制面后续刷新的已知集合。
@@ -306,18 +306,18 @@ func (s *Server) broadcastRoutePolicy(policy *controlv1.RoutePolicy, target mode
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 
-	pushDeliveryBatch(newDeliveryCycle(s.store).TargetBroadcastBatch(s.subscribers, &controlv1.ConnectResponse{
+	newDeliveryCycle(s.store).TargetBroadcastBatch(s.subscribers, &controlv1.ConnectResponse{
 		Body: &controlv1.ConnectResponse_RoutePolicy{
 			RoutePolicy: policy,
 		},
-	}, target))
+	}, target).Push()
 }
 
 func (s *Server) broadcastForTarget(resp *controlv1.ConnectResponse, target model.ServiceRef) {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 
-	pushDeliveryBatch(newDeliveryCycle(s.store).TargetBroadcastBatch(s.subscribers, resp, target))
+	newDeliveryCycle(s.store).TargetBroadcastBatch(s.subscribers, resp, target).Push()
 }
 
 func (s *Server) trackedTargetList() []model.ServiceRef {
@@ -378,28 +378,4 @@ func (s *Server) lookupSubscriber(id uint64) *subscriber {
 		return nil
 	}
 	return subscriber
-}
-
-func sendStreamBatch(stream grpc.BidiStreamingServer[controlv1.ConnectRequest, controlv1.ConnectResponse], batch deliveryBatch) error {
-	for _, resp := range batch.streamResponses {
-		if resp == nil {
-			continue
-		}
-		if err := stream.Send(resp); err != nil {
-			return err
-		}
-	}
-	return nil
-}
-
-func pushDeliveryBatch(batch deliveryBatch) {
-	for _, delivery := range batch.deliveries {
-		if delivery.pushCh == nil || delivery.response == nil {
-			continue
-		}
-		select {
-		case delivery.pushCh <- delivery.response:
-		default:
-		}
-	}
 }

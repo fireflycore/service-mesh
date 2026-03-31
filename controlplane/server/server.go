@@ -133,34 +133,7 @@ func (s *Server) handleRegister(stream grpc.BidiStreamingServer[controlv1.Connec
 	if register == nil || register.GetIdentity() == nil {
 		return nil
 	}
-	identity := register.GetIdentity()
-	cycle := newDeliveryCycle(s.store)
-	arbitrator := cycle.ForIdentity(identity)
-
-	for _, serviceSnapshot := range arbitrator.SelectedSnapshots() {
-		// 第十四版开始，register 后优先回放控制面当前已知的全部快照，
-		// 让 dataplane 默认依赖 controlplane 状态，而不是本地直连 source。
-		if err := stream.Send(&controlv1.ConnectResponse{
-			Body: &controlv1.ConnectResponse_ServiceSnapshot{
-				ServiceSnapshot: serviceSnapshot,
-			},
-		}); err != nil {
-			return err
-		}
-	}
-
-	for _, routePolicy := range arbitrator.SelectedPolicies() {
-		// 路由策略和快照一样采用“全量当前状态回放”，保持 dataplane 本地视图完整。
-		if err := stream.Send(&controlv1.ConnectResponse{
-			Body: &controlv1.ConnectResponse_RoutePolicy{
-				RoutePolicy: routePolicy,
-			},
-		}); err != nil {
-			return err
-		}
-	}
-
-	return nil
+	return sendStreamBatch(stream, newDeliveryCycle(s.store).RegisterBatch(register.GetIdentity()))
 }
 
 // handleHeartbeat 为后续更复杂的控制面状态机保留入口。
@@ -200,49 +173,16 @@ func (s *Server) handleSubscribe(stream grpc.BidiStreamingServer[controlv1.Conne
 	s.updateSubscriberTargets(subscriberID, targets)
 	subscriber := s.lookupSubscriber(subscriberID)
 	cycle := newDeliveryCycle(s.store)
+	var changed []*controlv1.ServiceSnapshot
 	if s.loader != nil {
-		changed, err := s.loader.RefreshMany(stream.Context(), targets)
+		var err error
+		changed, err = s.loader.RefreshMany(stream.Context(), targets)
 		if err != nil {
 			return err
 		}
-		for _, snapshot := range changed {
-			cycle.RememberChangedSnapshot(snapshot)
-			if err := stream.Send(&controlv1.ConnectResponse{
-				Body: &controlv1.ConnectResponse_ServiceSnapshot{
-					ServiceSnapshot: snapshot,
-				},
-			}); err != nil {
-				return err
-			}
-		}
 	}
 
-	for _, target := range targets {
-		snapshot := cycle.SnapshotForSubscribeTarget(subscriber, target)
-		if snapshot != nil {
-			if err := stream.Send(&controlv1.ConnectResponse{
-				Body: &controlv1.ConnectResponse_ServiceSnapshot{
-					ServiceSnapshot: snapshot,
-				},
-			}); err != nil {
-				return err
-			}
-		}
-
-		policy := cycle.PolicyForSubscribeTarget(subscriber, target)
-		if policy == nil {
-			continue
-		}
-		if err := stream.Send(&controlv1.ConnectResponse{
-			Body: &controlv1.ConnectResponse_RoutePolicy{
-				RoutePolicy: policy,
-			},
-		}); err != nil {
-			return err
-		}
-	}
-
-	return nil
+	return sendStreamBatch(stream, cycle.SubscribeBatch(subscriber, targets, changed))
 }
 
 // TrackTarget 把目标服务加入控制面后续刷新的已知集合。
@@ -366,36 +306,14 @@ func (s *Server) broadcastRoutePolicy(policy *controlv1.RoutePolicy, target mode
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 
-	cycle := newDeliveryCycle(s.store)
-	for _, subscriber := range s.subscribers {
-		if !cycle.AllowsTargetPolicy(subscriber, policy, target) {
-			continue
-		}
-		select {
-		case subscriber.pushCh <- &controlv1.ConnectResponse{
-			Body: &controlv1.ConnectResponse_RoutePolicy{
-				RoutePolicy: policy,
-			},
-		}:
-		default:
-		}
-	}
+	pushDeliveryBatch(newDeliveryCycle(s.store).RoutePolicyBroadcastBatch(s.subscribers, policy, target))
 }
 
 func (s *Server) broadcastForTarget(resp *controlv1.ConnectResponse, target model.ServiceRef) {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 
-	cycle := newDeliveryCycle(s.store)
-	for _, subscriber := range s.subscribers {
-		if !cycle.AllowsTargetResponse(subscriber, resp, target) {
-			continue
-		}
-		select {
-		case subscriber.pushCh <- resp:
-		default:
-		}
-	}
+	pushDeliveryBatch(newDeliveryCycle(s.store).TargetBroadcastBatch(s.subscribers, resp, target))
 }
 
 func (s *Server) trackedTargetList() []model.ServiceRef {
@@ -456,4 +374,28 @@ func (s *Server) lookupSubscriber(id uint64) *subscriber {
 		return nil
 	}
 	return subscriber
+}
+
+func sendStreamBatch(stream grpc.BidiStreamingServer[controlv1.ConnectRequest, controlv1.ConnectResponse], batch deliveryBatch) error {
+	for _, resp := range batch.streamResponses {
+		if resp == nil {
+			continue
+		}
+		if err := stream.Send(resp); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func pushDeliveryBatch(batch deliveryBatch) {
+	for _, delivery := range batch.deliveries {
+		if delivery.pushCh == nil || delivery.response == nil {
+			continue
+		}
+		select {
+		case delivery.pushCh <- delivery.response:
+		default:
+		}
+	}
 }

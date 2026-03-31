@@ -17,6 +17,11 @@ type plannedDelivery struct {
 	response *controlv1.ConnectResponse
 }
 
+type deliveryBatch struct {
+	streamResponses []*controlv1.ConnectResponse
+	deliveries      []plannedDelivery
+}
+
 func newDeliveryCycle(store *snapshot.Store) deliveryCycle {
 	if store == nil {
 		return deliveryCycle{
@@ -169,6 +174,40 @@ func (d deliveryCycle) SubscribeResponses(subscriber *subscriber, targets []mode
 	return responses
 }
 
+func (d deliveryCycle) RegisterBatch(identity *controlv1.DataplaneIdentity) deliveryBatch {
+	arbitrator := d.ForIdentity(identity)
+	batch := deliveryBatch{
+		streamResponses: make([]*controlv1.ConnectResponse, 0, len(arbitrator.SelectedSnapshots())+len(arbitrator.SelectedPolicies())),
+	}
+	for _, serviceSnapshot := range arbitrator.SelectedSnapshots() {
+		if serviceSnapshot == nil {
+			continue
+		}
+		batch.streamResponses = append(batch.streamResponses, &controlv1.ConnectResponse{
+			Body: &controlv1.ConnectResponse_ServiceSnapshot{
+				ServiceSnapshot: serviceSnapshot,
+			},
+		})
+	}
+	for _, routePolicy := range arbitrator.SelectedPolicies() {
+		if routePolicy == nil {
+			continue
+		}
+		batch.streamResponses = append(batch.streamResponses, &controlv1.ConnectResponse{
+			Body: &controlv1.ConnectResponse_RoutePolicy{
+				RoutePolicy: routePolicy,
+			},
+		})
+	}
+	return batch
+}
+
+func (d deliveryCycle) SubscribeBatch(subscriber *subscriber, targets []model.ServiceRef, changed []*controlv1.ServiceSnapshot) deliveryBatch {
+	return deliveryBatch{
+		streamResponses: d.SubscribeResponses(subscriber, targets, changed),
+	}
+}
+
 func (d deliveryCycle) PlanTargetResponse(subscribers map[uint64]*subscriber, resp *controlv1.ConnectResponse, target model.ServiceRef) []plannedDelivery {
 	if len(subscribers) == 0 || resp == nil {
 		return nil
@@ -188,6 +227,12 @@ func (d deliveryCycle) PlanTargetResponse(subscribers map[uint64]*subscriber, re
 		})
 	}
 	return deliveries
+}
+
+func (d deliveryCycle) TargetBroadcastBatch(subscribers map[uint64]*subscriber, resp *controlv1.ConnectResponse, target model.ServiceRef) deliveryBatch {
+	return deliveryBatch{
+		deliveries: d.PlanTargetResponse(subscribers, resp, target),
+	}
 }
 
 func (d deliveryCycle) PlanRoutePolicy(subscribers map[uint64]*subscriber, policy *controlv1.RoutePolicy, target model.ServiceRef) []plannedDelivery {
@@ -214,6 +259,12 @@ func (d deliveryCycle) PlanRoutePolicy(subscribers map[uint64]*subscriber, polic
 		})
 	}
 	return deliveries
+}
+
+func (d deliveryCycle) RoutePolicyBroadcastBatch(subscribers map[uint64]*subscriber, policy *controlv1.RoutePolicy, target model.ServiceRef) deliveryBatch {
+	return deliveryBatch{
+		deliveries: d.PlanRoutePolicy(subscribers, policy, target),
+	}
 }
 
 func (d deliveryCycle) AllowsTargetResponse(subscriber *subscriber, resp *controlv1.ConnectResponse, target model.ServiceRef) bool {

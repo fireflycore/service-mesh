@@ -1103,6 +1103,42 @@ func TestDeliveryCycleSubscribeResponsesBuildExpectedStreamPayloads(t *testing.T
 	}
 }
 
+func TestDeliveryCycleRegisterBatchBuildsReplayPayloads(t *testing.T) {
+	store := snapshot.NewStore()
+	store.PutServiceSnapshot(&controlv1.ServiceSnapshot{
+		Service: &controlv1.ServiceRef{
+			Service:   "orders",
+			Namespace: "default",
+			Env:       "dev",
+		},
+		Endpoints: []*controlv1.Endpoint{
+			{Address: "10.0.0.10", Port: 19090, Weight: 1},
+		},
+	})
+	store.PutRoutePolicy(&controlv1.RoutePolicy{
+		Service: &controlv1.ServiceRef{
+			Service:   "orders",
+			Namespace: "default",
+			Env:       "dev",
+		},
+		TimeoutMs: 1500,
+	})
+
+	batch := newDeliveryCycle(store).RegisterBatch(&controlv1.DataplaneIdentity{
+		Namespace: "default",
+		Env:       "dev",
+	})
+	if got, want := len(batch.streamResponses), 2; got != want {
+		t.Fatalf("unexpected register batch response count: got=%d want=%d", got, want)
+	}
+	if batch.streamResponses[0].GetServiceSnapshot() == nil {
+		t.Fatal("expected register batch to include snapshot replay")
+	}
+	if batch.streamResponses[1].GetRoutePolicy() == nil {
+		t.Fatal("expected register batch to include policy replay")
+	}
+}
+
 func TestDeliveryCycleBuildsTargetedBroadcastPlan(t *testing.T) {
 	store := snapshot.NewStore()
 	exactSnapshot := &controlv1.ServiceSnapshot{
@@ -1162,6 +1198,54 @@ func TestDeliveryCycleBuildsTargetedBroadcastPlan(t *testing.T) {
 	})
 	if got, want := len(deliveries), 1; got != want {
 		t.Fatalf("unexpected targeted delivery count: got=%d want=%d", got, want)
+	}
+}
+
+func TestDeliveryCycleTargetBroadcastBatchBuildsDeliveries(t *testing.T) {
+	store := snapshot.NewStore()
+	exactSnapshot := &controlv1.ServiceSnapshot{
+		Service: &controlv1.ServiceRef{
+			Service:   "orders",
+			Namespace: "default",
+			Env:       "dev",
+		},
+		Endpoints: []*controlv1.Endpoint{
+			{Address: "10.0.0.10", Port: 19090, Weight: 1},
+		},
+		Revision: "exact",
+	}
+	store.PutServiceSnapshot(exactSnapshot)
+
+	allowed := &subscriber{
+		pushCh: make(chan *controlv1.ConnectResponse, 1),
+		identity: &controlv1.DataplaneIdentity{
+			Namespace: "default",
+			Env:       "dev",
+		},
+		targets: map[string]model.ServiceRef{
+			"default/dev/orders": {
+				Service:   "orders",
+				Namespace: "default",
+				Env:       "dev",
+			},
+		},
+	}
+	batch := newDeliveryCycle(store).TargetBroadcastBatch(map[uint64]*subscriber{
+		1: allowed,
+	}, &controlv1.ConnectResponse{
+		Body: &controlv1.ConnectResponse_ServiceSnapshot{
+			ServiceSnapshot: exactSnapshot,
+		},
+	}, model.ServiceRef{
+		Service:   "orders",
+		Namespace: "default",
+		Env:       "dev",
+	})
+	if got, want := len(batch.deliveries), 1; got != want {
+		t.Fatalf("unexpected target broadcast batch count: got=%d want=%d", got, want)
+	}
+	if batch.deliveries[0].response.GetServiceSnapshot() == nil {
+		t.Fatal("expected target broadcast batch to keep snapshot response")
 	}
 }
 

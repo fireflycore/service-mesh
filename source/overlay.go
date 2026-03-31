@@ -19,6 +19,9 @@ type TargetTracker interface {
 // ErrControlPlaneSnapshotUnavailable 表示当前目标服务还没有可用控制面快照。
 var ErrControlPlaneSnapshotUnavailable = errors.New("controlplane snapshot unavailable")
 
+// ErrControlPlaneSnapshotDegraded 表示当前控制面快照已显式退化，不应继续作为主路径使用。
+var ErrControlPlaneSnapshotDegraded = errors.New("controlplane snapshot degraded")
+
 // Overlay 用于实现“controlplane 优先，本地目录回退”。
 type Overlay struct {
 	// primary 是原始目录来源，priority 是更高优先级的覆盖来源。
@@ -57,6 +60,12 @@ func (o *Overlay) Resolve(ctx context.Context, target model.ServiceRef) (model.S
 	if o.priority != nil {
 		// 只要控制面快照命中，就不再访问底层目录服务。
 		if snapshot, ok := o.priority.ResolveSnapshot(target); ok {
+			if snapshot.Status == model.SnapshotStatusDegraded {
+				if o.allowPrimaryFallback && o.primary != nil {
+					return o.primary.Resolve(ctx, target)
+				}
+				return model.ServiceSnapshot{}, ErrControlPlaneSnapshotDegraded
+			}
 			return snapshot, nil
 		}
 		if tracker, ok := o.priority.(TargetTracker); ok {

@@ -536,6 +536,45 @@ func TestServiceUnaryInvokeAllowsCrossScopeSameServiceTarget(t *testing.T) {
 	}
 }
 
+func TestServiceUnaryInvokeRejectsDegradedSnapshot(t *testing.T) {
+	svc := NewService(
+		authz.NewAllowAll(),
+		resolver.New(memory.New(map[string]model.ServiceSnapshot{
+			"default/dev/orders": {
+				Service: model.ServiceRef{
+					Service:   "orders",
+					Namespace: "default",
+					Env:       "dev",
+				},
+				Endpoints: []model.Endpoint{{Address: "127.0.0.1", Port: 8080, Weight: 1}},
+				Status:       model.SnapshotStatusDegraded,
+				StatusReason: "all endpoints unhealthy",
+			},
+		}), balancer.NewRoundRobin()),
+		&fakeTransport{},
+	)
+
+	_, err := svc.UnaryInvoke(context.Background(), &invokev1.UnaryInvokeRequest{
+		Target: &invokev1.ServiceRef{
+			Service:   "orders",
+			Namespace: "default",
+			Env:       "dev",
+		},
+		Method: "/acme.orders.v1.OrderService/GetOrder",
+	})
+	if err == nil {
+		t.Fatal("expected degraded snapshot invoke to fail")
+	}
+
+	statusErr, ok := status.FromError(err)
+	if !ok {
+		t.Fatalf("expected grpc status error: %v", err)
+	}
+	if got, want := statusErr.Code(), codes.FailedPrecondition; got != want {
+		t.Fatalf("unexpected status code: got=%s want=%s", got, want)
+	}
+}
+
 func TestServiceUnaryInvokeRejectsSameScopeTargetUnderCrossScopeMode(t *testing.T) {
 	svc := NewService(
 		authz.NewAllowAll(),

@@ -35,6 +35,13 @@ func (r *Resolver) Resolve(ctx context.Context, target model.ServiceRef) (model.
 	if err != nil {
 		return model.Endpoint{}, err
 	}
+	if snapshot.Status == model.SnapshotStatusDegraded {
+		return model.Endpoint{}, &SnapshotStatusError{
+			Target: target,
+			Status: snapshot.Status,
+			Reason: snapshot.StatusReason,
+		}
+	}
 
 	// balancer 在这里把“服务级快照”压缩成“单个目标实例”。
 	return r.balancer.Pick(snapshot)

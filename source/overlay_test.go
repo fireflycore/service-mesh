@@ -128,3 +128,56 @@ func TestOverlayFallsBackToPrimaryWhenEnabled(t *testing.T) {
 		t.Fatalf("unexpected fallback endpoint: got=%s want=%s", got, want)
 	}
 }
+
+func TestOverlayReturnsDegradedErrorWithoutFallback(t *testing.T) {
+	overlay := NewOverlayWithFallback(nil, fakeSnapshotResolver{
+		snapshot: model.ServiceSnapshot{
+			Service: model.ServiceRef{Service: "orders", Namespace: "default", Env: "dev"},
+			Status:  model.SnapshotStatusDegraded,
+		},
+		ok: true,
+	}, false)
+
+	_, err := overlay.Resolve(context.Background(), model.ServiceRef{
+		Service:   "orders",
+		Namespace: "default",
+		Env:       "dev",
+	})
+	if err == nil {
+		t.Fatal("expected degraded controlplane snapshot to fail")
+	}
+	if err != ErrControlPlaneSnapshotDegraded {
+		t.Fatalf("unexpected degraded error: %v", err)
+	}
+}
+
+func TestOverlayFallsBackToPrimaryWhenControlplaneSnapshotIsDegraded(t *testing.T) {
+	overlay := NewOverlayWithFallback(
+		fakeProvider{
+			snapshot: model.ServiceSnapshot{
+				Service:   model.ServiceRef{Service: "orders", Namespace: "default", Env: "dev"},
+				Endpoints: []model.Endpoint{{Address: "10.0.0.9", Port: 39090, Weight: 1}},
+			},
+		},
+		fakeSnapshotResolver{
+			snapshot: model.ServiceSnapshot{
+				Service: model.ServiceRef{Service: "orders", Namespace: "default", Env: "dev"},
+				Status:  model.SnapshotStatusDegraded,
+			},
+			ok: true,
+		},
+		true,
+	)
+
+	snapshot, err := overlay.Resolve(context.Background(), model.ServiceRef{
+		Service:   "orders",
+		Namespace: "default",
+		Env:       "dev",
+	})
+	if err != nil {
+		t.Fatalf("expected degraded controlplane snapshot to fallback: %v", err)
+	}
+	if got, want := snapshot.Endpoints[0].Address, "10.0.0.9"; got != want {
+		t.Fatalf("unexpected degraded fallback endpoint: got=%s want=%s", got, want)
+	}
+}

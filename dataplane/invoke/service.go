@@ -10,6 +10,7 @@ import (
 	controlv1 "github.com/fireflycore/service-mesh/.gen/proto/acme/control/v1"
 	invokev1 "github.com/fireflycore/service-mesh/.gen/proto/acme/invoke/v1"
 	"github.com/fireflycore/service-mesh/dataplane/authz"
+	meshresolver "github.com/fireflycore/service-mesh/dataplane/resolver"
 	meshtelemetry "github.com/fireflycore/service-mesh/dataplane/telemetry"
 	"github.com/fireflycore/service-mesh/dataplane/transport"
 	"github.com/fireflycore/service-mesh/pkg/config"
@@ -245,6 +246,12 @@ func (s *Service) UnaryInvoke(ctx context.Context, req *invokev1.UnaryInvokeRequ
 		span.SetStatus(otelcodes.Error, "invoke deadline exceeded")
 		effectiveOptions.Telemetry.RecordFailure(spanCtx, "deadline_exceeded")
 		return nil, status.Error(codes.DeadlineExceeded, lastErr.Error())
+	}
+	if errors.Is(lastErr, meshresolver.ErrSnapshotDegraded) {
+		span.RecordError(lastErr)
+		span.SetStatus(otelcodes.Error, "invoke degraded")
+		effectiveOptions.Telemetry.RecordFailure(spanCtx, "snapshot_degraded")
+		return nil, status.Error(codes.FailedPrecondition, lastErr.Error())
 	}
 	// 其余错误统一按 Unavailable 返回，表示这次目标调用未成功完成。
 	span.RecordError(lastErr)

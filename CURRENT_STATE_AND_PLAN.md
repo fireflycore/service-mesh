@@ -76,6 +76,7 @@
 - explain 统计也开始进入 controlplane telemetry 指标出口
 - target push 已开始输出 subscriber 级 decision trace 摘要，便于直接排查投递命中路径
 - decision trace 已按 subscriber 稳定排序，并输出 trace_total / trace_shown，避免排障结果漂移
+- decision trace 已开始具备正式结构化导出视图，便于后续做 trace/export 而不依赖字符串拼接
 
 ### 第三优先级：M18 最小观测补强
 

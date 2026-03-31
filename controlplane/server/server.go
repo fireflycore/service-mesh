@@ -424,22 +424,23 @@ func (s *Server) broadcastForTarget(resp *controlv1.ConnectResponse, target mode
 	defer s.mu.RUnlock()
 	cycle := newDeliveryCycle(s.store)
 	summary := cycle.ExplainTargetResponse(s.subscribers, resp, target)
+	exported := summary.export(8)
 	slog.Info("controlplane push explain",
-		slog.String("response_kind", summary.responseKind),
+		slog.String("response_kind", exported.ResponseKind),
 		slog.String("service", target.Service),
 		slog.String("namespace", target.Namespace),
 		slog.String("env", target.Env),
-		slog.Int("delivered", summary.delivered),
-		slog.Int("subscription_exact", summary.subscriptionExact),
-		slog.Int("subscription_fallback", summary.subscriptionFallback),
-		slog.Int("identity_exact", summary.identityExact),
-		slog.Int("identity_fallback", summary.identityFallback),
-		slog.Int("denied_subscription", summary.deniedSubscription),
-		slog.Int("denied_identity", summary.deniedIdentity),
-		slog.Int("denied_arbitration", summary.deniedArbitration),
-		slog.Int("trace_total", len(summary.trace)),
-		slog.Int("trace_shown", summary.traceShownCount(8)),
-		slog.String("trace", summary.traceString(8)),
+		slog.Int("delivered", exported.Delivered),
+		slog.Int("subscription_exact", exported.SubscriptionExact),
+		slog.Int("subscription_fallback", exported.SubscriptionFallback),
+		slog.Int("identity_exact", exported.IdentityExact),
+		slog.Int("identity_fallback", exported.IdentityFallback),
+		slog.Int("denied_subscription", exported.DeniedSubscription),
+		slog.Int("denied_identity", exported.DeniedIdentity),
+		slog.Int("denied_arbitration", exported.DeniedArbitration),
+		slog.Int("trace_total", exported.TraceTotal),
+		slog.Int("trace_shown", exported.TraceShown),
+		slog.String("trace", summary.traceString(exported.TraceShown)),
 	)
 	s.recordPushExplain(summary)
 	cycle.TargetBroadcastBatch(s.subscribers, resp, target).Push()

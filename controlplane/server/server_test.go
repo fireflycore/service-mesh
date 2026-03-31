@@ -2108,6 +2108,19 @@ func TestDeliveryCycleExplainTargetResponse(t *testing.T) {
 	if got := summary.traceString(2); got == "" {
 		t.Fatal("expected trace string to be populated")
 	}
+	exported := summary.export(1)
+	if got, want := exported.TraceTotal, 2; got != want {
+		t.Fatalf("unexpected exported trace total: got=%d want=%d", got, want)
+	}
+	if got, want := exported.TraceShown, 1; got != want {
+		t.Fatalf("unexpected exported trace shown: got=%d want=%d", got, want)
+	}
+	if got, want := len(exported.Trace), 1; got != want {
+		t.Fatalf("unexpected exported trace length: got=%d want=%d", got, want)
+	}
+	if got, want := exported.Trace[0].DataplaneID, "dp-1"; got != want {
+		t.Fatalf("unexpected exported first trace dataplane: got=%s want=%s", got, want)
+	}
 }
 
 func TestResourceArbitratorExplain(t *testing.T) {

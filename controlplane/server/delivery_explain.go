@@ -44,6 +44,28 @@ type deliveryDecisionTrace struct {
 	decision          string
 }
 
+type DeliveryDecisionTraceExport struct {
+	DataplaneID       string
+	SubscriptionMatch string
+	IdentityMatch     string
+	Decision          string
+}
+
+type DeliveryExplainExport struct {
+	ResponseKind         string
+	Delivered            int
+	DeniedSubscription   int
+	DeniedIdentity       int
+	DeniedArbitration    int
+	SubscriptionExact    int
+	SubscriptionFallback int
+	IdentityExact        int
+	IdentityFallback     int
+	TraceTotal           int
+	TraceShown           int
+	Trace                []DeliveryDecisionTraceExport
+}
+
 func (s deliveryExplainSummary) traceString(limit int) string {
 	if len(s.trace) == 0 || limit == 0 {
 		return ""
@@ -67,6 +89,37 @@ func (s deliveryExplainSummary) traceShownCount(limit int) int {
 		return len(s.trace)
 	}
 	return limit
+}
+
+func (s deliveryExplainSummary) export(limit int) DeliveryExplainExport {
+	shown := s.traceShownCount(limit)
+	exported := DeliveryExplainExport{
+		ResponseKind:         s.responseKind,
+		Delivered:            s.delivered,
+		DeniedSubscription:   s.deniedSubscription,
+		DeniedIdentity:       s.deniedIdentity,
+		DeniedArbitration:    s.deniedArbitration,
+		SubscriptionExact:    s.subscriptionExact,
+		SubscriptionFallback: s.subscriptionFallback,
+		IdentityExact:        s.identityExact,
+		IdentityFallback:     s.identityFallback,
+		TraceTotal:           len(s.trace),
+		TraceShown:           shown,
+	}
+	if shown == 0 {
+		return exported
+	}
+	exported.Trace = make([]DeliveryDecisionTraceExport, 0, shown)
+	for i := 0; i < shown; i++ {
+		item := s.trace[i]
+		exported.Trace = append(exported.Trace, DeliveryDecisionTraceExport{
+			DataplaneID:       item.dataplaneID,
+			SubscriptionMatch: item.subscriptionMatch,
+			IdentityMatch:     item.identityMatch,
+			Decision:          item.decision,
+		})
+	}
+	return exported
 }
 
 func responseKind(resp *controlv1.ConnectResponse) string {

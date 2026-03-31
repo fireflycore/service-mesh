@@ -202,6 +202,7 @@ func (s *Server) handleRegister(stream grpc.BidiStreamingServer[controlv1.Connec
 		slog.Int("route_policy_exact", replayExplain.policyExact),
 		slog.Int("route_policy_fallback", replayExplain.policyFallback),
 	)
+	s.recordReplayExplain("register", identity, replayExplain)
 	return batch.Send(stream)
 }
 
@@ -273,6 +274,9 @@ func (s *Server) handleSubscribe(stream grpc.BidiStreamingServer[controlv1.Conne
 			slog.Int("route_policy_exact", replayExplain.policyExact),
 			slog.Int("route_policy_fallback", replayExplain.policyFallback),
 		)
+	}
+	if subscriber != nil && subscriber.identity != nil {
+		s.recordReplayExplain("subscribe", subscriber.identity, replayExplain)
 	}
 	return batch.Send(stream)
 }
@@ -434,7 +438,37 @@ func (s *Server) broadcastForTarget(resp *controlv1.ConnectResponse, target mode
 		slog.Int("denied_identity", summary.deniedIdentity),
 		slog.Int("denied_arbitration", summary.deniedArbitration),
 	)
+	s.recordPushExplain(summary)
 	cycle.TargetBroadcastBatch(s.subscribers, resp, target).Push()
+}
+
+func (s *Server) recordReplayExplain(phase string, identity *controlv1.DataplaneIdentity, summary replayExplainSummary) {
+	if s == nil || s.telemetry == nil || identity == nil {
+		return
+	}
+	ctx := context.Background()
+	s.telemetry.RecordReplayResource(ctx, phase, identity.GetDataplaneId(), identity.GetNamespace(), identity.GetEnv(), "snapshot", "exact", int64(summary.snapshotExact))
+	s.telemetry.RecordReplayResource(ctx, phase, identity.GetDataplaneId(), identity.GetNamespace(), identity.GetEnv(), "snapshot", "fallback", int64(summary.snapshotFallback))
+	s.telemetry.RecordReplayResource(ctx, phase, identity.GetDataplaneId(), identity.GetNamespace(), identity.GetEnv(), "route_policy", "exact", int64(summary.policyExact))
+	s.telemetry.RecordReplayResource(ctx, phase, identity.GetDataplaneId(), identity.GetNamespace(), identity.GetEnv(), "route_policy", "fallback", int64(summary.policyFallback))
+}
+
+func (s *Server) recordPushExplain(summary deliveryExplainSummary) {
+	if s == nil || s.telemetry == nil {
+		return
+	}
+	ctx := context.Background()
+	service := summary.target.Service
+	namespace := summary.target.Namespace
+	env := summary.target.Env
+	s.telemetry.RecordPushDecision(ctx, summary.responseKind, service, namespace, env, "delivered", "matched", "matched", int64(summary.delivered))
+	s.telemetry.RecordPushDecision(ctx, summary.responseKind, service, namespace, env, "denied_subscription", "none", "unknown", int64(summary.deniedSubscription))
+	s.telemetry.RecordPushDecision(ctx, summary.responseKind, service, namespace, env, "denied_identity", "matched", "none", int64(summary.deniedIdentity))
+	s.telemetry.RecordPushDecision(ctx, summary.responseKind, service, namespace, env, "denied_arbitration", "matched", "matched", int64(summary.deniedArbitration))
+	s.telemetry.RecordPushDecision(ctx, summary.responseKind, service, namespace, env, "matched_subscription", "exact", "unknown", int64(summary.subscriptionExact))
+	s.telemetry.RecordPushDecision(ctx, summary.responseKind, service, namespace, env, "matched_subscription", "fallback", "unknown", int64(summary.subscriptionFallback))
+	s.telemetry.RecordPushDecision(ctx, summary.responseKind, service, namespace, env, "matched_identity", "unknown", "exact", int64(summary.identityExact))
+	s.telemetry.RecordPushDecision(ctx, summary.responseKind, service, namespace, env, "matched_identity", "unknown", "fallback", int64(summary.identityFallback))
 }
 
 func (s *Server) trackedTargetList() []model.ServiceRef {

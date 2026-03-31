@@ -14,6 +14,8 @@ import (
 type Emitter struct {
 	watchRestartCounter metric.Int64Counter
 	watchUpdateCounter  metric.Int64Counter
+	replayCounter       metric.Int64Counter
+	pushDecisionCounter metric.Int64Counter
 }
 
 func NewEmitter() *Emitter {
@@ -21,10 +23,14 @@ func NewEmitter() *Emitter {
 
 	watchRestartCounter, _ := meter.Int64Counter("service_mesh.controlplane.watch.restarts")
 	watchUpdateCounter, _ := meter.Int64Counter("service_mesh.controlplane.watch.updates")
+	replayCounter, _ := meter.Int64Counter("service_mesh.controlplane.replay.resources")
+	pushDecisionCounter, _ := meter.Int64Counter("service_mesh.controlplane.push.decisions")
 
 	return &Emitter{
 		watchRestartCounter: watchRestartCounter,
 		watchUpdateCounter:  watchUpdateCounter,
+		replayCounter:       replayCounter,
+		pushDecisionCounter: pushDecisionCounter,
 	}
 }
 
@@ -59,6 +65,35 @@ func (e *Emitter) RecordWatchUpdate(ctx context.Context, update snapshot.WatchUp
 		attribute.String("mesh.target.env", update.Target.Env),
 		attribute.String("mesh.snapshot.status", status),
 		attribute.String("mesh.snapshot.reason_class", reasonClass),
+	))
+}
+
+func (e *Emitter) RecordReplayResource(ctx context.Context, phase, dataplaneID, namespace, env, resourceKind, matchKind string, count int64) {
+	if e == nil || e.replayCounter == nil || count <= 0 {
+		return
+	}
+	e.replayCounter.Add(ctx, count, metric.WithAttributes(
+		attribute.String("mesh.replay.phase", phase),
+		attribute.String("mesh.dataplane.id", dataplaneID),
+		attribute.String("mesh.dataplane.namespace", namespace),
+		attribute.String("mesh.dataplane.env", env),
+		attribute.String("mesh.resource.kind", resourceKind),
+		attribute.String("mesh.match.kind", matchKind),
+	))
+}
+
+func (e *Emitter) RecordPushDecision(ctx context.Context, responseKind, service, namespace, env, decision, subscriptionMatch, identityMatch string, count int64) {
+	if e == nil || e.pushDecisionCounter == nil || count <= 0 {
+		return
+	}
+	e.pushDecisionCounter.Add(ctx, count, metric.WithAttributes(
+		attribute.String("mesh.response.kind", responseKind),
+		attribute.String("mesh.target.service", service),
+		attribute.String("mesh.target.namespace", namespace),
+		attribute.String("mesh.target.env", env),
+		attribute.String("mesh.push.decision", decision),
+		attribute.String("mesh.subscription.match", subscriptionMatch),
+		attribute.String("mesh.identity.match", identityMatch),
 	))
 }
 

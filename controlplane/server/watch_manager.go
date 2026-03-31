@@ -13,9 +13,9 @@ import (
 )
 
 type watchManager struct {
-	loader   *snapshot.Loader
+	loader    *snapshot.Loader
 	telemetry *controltelemetry.Emitter
-	onUpdate func(snapshot.WatchUpdate)
+	onUpdate  func(snapshot.WatchUpdate)
 
 	mu      sync.Mutex
 	rootCtx context.Context
@@ -119,9 +119,10 @@ func (m *watchManager) Track(target model.ServiceRef) {
 				continue
 			}
 			if m.telemetry != nil {
-				m.telemetry.RecordWatchRestart(watchCtx, target.Service)
+				m.telemetry.RecordWatchRestart(watchCtx, m.loaderProviderName(), target.Service, target.Namespace, target.Env)
 			}
 			slog.Warn("controlplane watch restarting",
+				slog.String("provider", m.loaderProviderName()),
 				slog.String("service", target.Service),
 				slog.String("namespace", target.Namespace),
 				slog.String("env", target.Env),
@@ -136,6 +137,13 @@ func (m *watchManager) Track(target model.ServiceRef) {
 			}
 		}
 	}()
+}
+
+func (m *watchManager) loaderProviderName() string {
+	if m == nil || m.loader == nil {
+		return ""
+	}
+	return m.loader.ProviderName()
 }
 
 func waitWatchRestart(ctx context.Context) bool {

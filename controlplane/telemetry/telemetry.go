@@ -28,12 +28,15 @@ func NewEmitter() *Emitter {
 	}
 }
 
-func (e *Emitter) RecordWatchRestart(ctx context.Context, target string) {
+func (e *Emitter) RecordWatchRestart(ctx context.Context, provider, service, namespace, env string) {
 	if e == nil || e.watchRestartCounter == nil {
 		return
 	}
 	e.watchRestartCounter.Add(ctx, 1, metric.WithAttributes(
-		attribute.String("mesh.target.service", target),
+		attribute.String("mesh.source.provider", provider),
+		attribute.String("mesh.target.service", service),
+		attribute.String("mesh.target.namespace", namespace),
+		attribute.String("mesh.target.env", env),
 	))
 }
 
@@ -46,10 +49,14 @@ func (e *Emitter) RecordWatchUpdate(ctx context.Context, update snapshot.WatchUp
 	reasonClass := ""
 	if update.Snapshot != nil {
 		status = snapshotStatusLabel(update.Snapshot.GetStatus())
-		reasonClass = snapshotReasonClass(update.Snapshot.GetStatusReason())
+		reasonClass = SnapshotReasonClass(update.Snapshot.GetStatusReason())
 	}
 
 	e.watchUpdateCounter.Add(ctx, 1, metric.WithAttributes(
+		attribute.String("mesh.source.provider", update.Provider),
+		attribute.String("mesh.target.service", update.Target.Service),
+		attribute.String("mesh.target.namespace", update.Target.Namespace),
+		attribute.String("mesh.target.env", update.Target.Env),
 		attribute.String("mesh.snapshot.status", status),
 		attribute.String("mesh.snapshot.reason_class", reasonClass),
 	))
@@ -68,7 +75,7 @@ func snapshotStatusLabel(status controlv1.SnapshotStatus) string {
 	}
 }
 
-func snapshotReasonClass(reason string) string {
+func SnapshotReasonClass(reason string) string {
 	trimmed := strings.TrimSpace(reason)
 	if trimmed == "" {
 		return ""

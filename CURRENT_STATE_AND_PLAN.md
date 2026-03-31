@@ -49,6 +49,17 @@
 - 细化 stale 与 degraded 的升级/回退规则
 - 明确不同 provider 下的错误归类
 
+当前已收敛到的最小错误矩阵：
+
+- `timeout`
+  - 典型来源：query timeout / context deadline exceeded
+- `unavailable`
+  - 典型来源：目录服务不可达、连接异常、临时失败
+- `empty`
+  - 典型来源：provider 能返回服务记录，但没有健康实例
+- `internal`
+  - 预留给后续更内部的不可归类错误
+
 ### 第二优先级：M16 运行态语义收口
 
 - identity 命中与推送决策的 explain 能力

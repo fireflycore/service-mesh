@@ -113,6 +113,9 @@ service-mesh/
   - 内存版 source，主要用于测试与本地验证
 - `source/watchapi`
   - watch 类型、polling watch runner、错误分类与状态升级逻辑
+- `source/sourceerr`
+  - source 侧统一错误语义
+  - 当前已承接 `no healthy endpoints` 这类 provider 共享错误
 - `source/overlay.go`
   - controlplane snapshot 与原始 source 的叠加与回退逻辑
 - `source/provider.go`

@@ -16,6 +16,7 @@ type Loader struct {
 
 type WatchUpdate struct {
 	Target   model.ServiceRef
+	Provider string
 	Snapshot *controlv1.ServiceSnapshot
 	Deleted  bool
 	Changed  bool
@@ -111,18 +112,31 @@ func (l *Loader) applyWatchEvent(event source.WatchEvent) WatchUpdate {
 	case source.WatchEventDelete:
 		deleted := l.store.DeleteServiceSnapshot(event.Target)
 		return WatchUpdate{
-			Target:  event.Target,
-			Deleted: deleted,
-			Changed: deleted,
+			Target:   event.Target,
+			Provider: l.providerName(),
+			Deleted:  deleted,
+			Changed:  deleted,
 		}
 	case source.WatchEventUpsert:
 		snapshot, changed := l.store.PutModelSnapshot(event.Snapshot)
 		return WatchUpdate{
 			Target:   event.Snapshot.Service,
+			Provider: l.providerName(),
 			Snapshot: snapshot,
 			Changed:  changed,
 		}
 	default:
 		return WatchUpdate{}
 	}
+}
+
+func (l *Loader) providerName() string {
+	if l == nil || l.provider == nil {
+		return ""
+	}
+	return l.provider.Name()
+}
+
+func (l *Loader) ProviderName() string {
+	return l.providerName()
 }

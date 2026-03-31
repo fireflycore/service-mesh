@@ -66,9 +66,11 @@ func NewWithLoader(store *snapshot.Store, loader *snapshot.Loader) *Server {
 			if update.Snapshot.GetStatus() == controlv1.SnapshotStatus_SNAPSHOT_STATUS_STALE ||
 				update.Snapshot.GetStatus() == controlv1.SnapshotStatus_SNAPSHOT_STATUS_DEGRADED {
 				slog.Warn("controlplane snapshot status changed",
+					slog.String("provider", update.Provider),
 					slog.String("service", target.Service),
 					slog.String("namespace", target.Namespace),
 					slog.String("env", target.Env),
+					slog.String("reason_class", controltelemetry.SnapshotReasonClass(update.Snapshot.GetStatusReason())),
 					slog.String("status", update.Snapshot.GetStatus().String()),
 					slog.String("reason", update.Snapshot.GetStatusReason()),
 				)
@@ -78,6 +80,7 @@ func NewWithLoader(store *snapshot.Store, loader *snapshot.Loader) *Server {
 		}
 		if update.Deleted && strings.TrimSpace(target.Service) != "" {
 			slog.Info("controlplane snapshot deleted",
+				slog.String("provider", update.Provider),
 				slog.String("service", target.Service),
 				slog.String("namespace", target.Namespace),
 				slog.String("env", target.Env),

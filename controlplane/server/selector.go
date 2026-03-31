@@ -37,6 +37,12 @@ type resourceArbitrator struct {
 	policies  map[string]*controlv1.RoutePolicy
 }
 
+type arbitrationCache struct {
+	snapshots []*controlv1.ServiceSnapshot
+	policies  []*controlv1.RoutePolicy
+	byKey     map[string]resourceArbitrator
+}
+
 func matchesDataplaneIdentity(service *controlv1.ServiceRef, identity *controlv1.DataplaneIdentity) bool {
 	return matchIdentityScope(service, identity) != matchPriorityNone
 }
@@ -162,6 +168,41 @@ func newResourceArbitrator(snapshots []*controlv1.ServiceSnapshot, policies []*c
 		snapshots: selectBestSnapshotMapForIdentity(snapshots, identity),
 		policies:  selectBestRoutePolicyMapForIdentity(policies, identity),
 	}
+}
+
+func newArbitrationCache(snapshots []*controlv1.ServiceSnapshot, policies []*controlv1.RoutePolicy) *arbitrationCache {
+	return &arbitrationCache{
+		snapshots: snapshots,
+		policies:  policies,
+		byKey:     make(map[string]resourceArbitrator),
+	}
+}
+
+func (c *arbitrationCache) ForIdentity(identity *controlv1.DataplaneIdentity) resourceArbitrator {
+	if c == nil {
+		return resourceArbitrator{}
+	}
+	key := identityCacheKey(identity)
+	if arbitrator, ok := c.byKey[key]; ok {
+		return arbitrator
+	}
+	arbitrator := newResourceArbitrator(c.snapshots, c.policies, identity)
+	c.byKey[key] = arbitrator
+	return arbitrator
+}
+
+func (c *arbitrationCache) ForSubscriber(subscriber *subscriber) resourceArbitrator {
+	if subscriber == nil {
+		return resourceArbitrator{}
+	}
+	return c.ForIdentity(subscriber.identity)
+}
+
+func identityCacheKey(identity *controlv1.DataplaneIdentity) string {
+	if identity == nil {
+		return ""
+	}
+	return identity.GetNamespace() + "/" + identity.GetEnv() + "/" + identity.GetDataplaneId() + "/" + identity.GetNodeId()
 }
 
 func (a resourceArbitrator) SelectedSnapshots() []*controlv1.ServiceSnapshot {

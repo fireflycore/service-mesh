@@ -134,7 +134,8 @@ func (s *Server) handleRegister(stream grpc.BidiStreamingServer[controlv1.Connec
 		return nil
 	}
 	identity := register.GetIdentity()
-	arbitrator := newResourceArbitrator(s.store.AllServiceSnapshots(), s.store.AllRoutePolicies(), identity)
+	cache := newArbitrationCache(s.store.AllServiceSnapshots(), s.store.AllRoutePolicies())
+	arbitrator := cache.ForIdentity(identity)
 
 	for _, serviceSnapshot := range arbitrator.SelectedSnapshots() {
 		// 第十四版开始，register 后优先回放控制面当前已知的全部快照，
@@ -199,7 +200,8 @@ func (s *Server) handleSubscribe(stream grpc.BidiStreamingServer[controlv1.Conne
 	s.updateSubscriberTargets(subscriberID, targets)
 	subscriber := s.lookupSubscriber(subscriberID)
 	selector := selectorFromSubscriber(subscriber)
-	arbitrator := newResourceArbitrator(s.store.AllServiceSnapshots(), s.store.AllRoutePolicies(), selector.identity)
+	cache := newArbitrationCache(s.store.AllServiceSnapshots(), s.store.AllRoutePolicies())
+	arbitrator := cache.ForIdentity(selector.identity)
 
 	changedKeys := make(map[string]struct{})
 	if s.loader != nil {
@@ -389,12 +391,12 @@ func (s *Server) broadcastRoutePolicy(policy *controlv1.RoutePolicy, target mode
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 
-	arbitrators := make(map[string]resourceArbitrator)
+	cache := newArbitrationCache(s.store.AllServiceSnapshots(), s.store.AllRoutePolicies())
 	for _, subscriber := range s.subscribers {
 		if !matchesSelectors(selectorFromSubscriber(subscriber), selectorFromRoutePolicy(policy, target, true)) {
 			continue
 		}
-		if !s.shouldPushPolicyToSubscriber(arbitrators, subscriber, policy) {
+		if !s.shouldPushPolicyToSubscriber(cache, subscriber, policy) {
 			continue
 		}
 		select {
@@ -413,12 +415,12 @@ func (s *Server) broadcastForTarget(resp *controlv1.ConnectResponse, target mode
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 
-	arbitrators := make(map[string]resourceArbitrator)
+	cache := newArbitrationCache(s.store.AllServiceSnapshots(), s.store.AllRoutePolicies())
 	for _, subscriber := range s.subscribers {
 		if !matchesSelectors(selectorFromSubscriber(subscriber), resource) {
 			continue
 		}
-		if !s.shouldPushSnapshotToSubscriber(arbitrators, subscriber, resp) {
+		if !s.shouldPushSnapshotToSubscriber(cache, subscriber, resp) {
 			continue
 		}
 		select {
@@ -443,14 +445,14 @@ func targetKey(target model.ServiceRef) string {
 	return target.Namespace + "/" + target.Env + "/" + target.Service
 }
 
-func (s *Server) shouldPushPolicyToSubscriber(cache map[string]resourceArbitrator, subscriber *subscriber, policy *controlv1.RoutePolicy) bool {
+func (s *Server) shouldPushPolicyToSubscriber(cache *arbitrationCache, subscriber *subscriber, policy *controlv1.RoutePolicy) bool {
 	if policy == nil || policy.GetService() == nil {
 		return false
 	}
 	return s.arbitratorForSubscriber(cache, subscriber).AllowsPolicy(policy)
 }
 
-func (s *Server) shouldPushSnapshotToSubscriber(cache map[string]resourceArbitrator, subscriber *subscriber, resp *controlv1.ConnectResponse) bool {
+func (s *Server) shouldPushSnapshotToSubscriber(cache *arbitrationCache, subscriber *subscriber, resp *controlv1.ConnectResponse) bool {
 	if resp == nil || resp.GetServiceSnapshot() == nil {
 		return true
 	}
@@ -461,22 +463,11 @@ func (s *Server) shouldPushSnapshotToSubscriber(cache map[string]resourceArbitra
 	return s.arbitratorForSubscriber(cache, subscriber).AllowsSnapshot(snapshot)
 }
 
-func (s *Server) arbitratorForSubscriber(cache map[string]resourceArbitrator, subscriber *subscriber) resourceArbitrator {
-	identityKey := subscriberIdentityKey(subscriber)
-	if arbitrator, ok := cache[identityKey]; ok {
-		return arbitrator
+func (s *Server) arbitratorForSubscriber(cache *arbitrationCache, subscriber *subscriber) resourceArbitrator {
+	if cache == nil {
+		return resourceArbitrator{}
 	}
-	arbitrator := newResourceArbitrator(s.store.AllServiceSnapshots(), s.store.AllRoutePolicies(), subscriber.identity)
-	cache[identityKey] = arbitrator
-	return arbitrator
-}
-
-func subscriberIdentityKey(subscriber *subscriber) string {
-	if subscriber == nil || subscriber.identity == nil {
-		return ""
-	}
-	identity := subscriber.identity
-	return identity.GetNamespace() + "/" + identity.GetEnv() + "/" + identity.GetDataplaneId() + "/" + identity.GetNodeId()
+	return cache.ForSubscriber(subscriber)
 }
 
 func (s *Server) updateSubscriberIdentity(id uint64, identity *controlv1.DataplaneIdentity) {

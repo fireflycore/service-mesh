@@ -858,6 +858,26 @@ func TestResourceArbitratorPrefersExactCandidateForTarget(t *testing.T) {
 	}
 }
 
+func TestArbitrationCacheReusesIdentityScopedArbitrator(t *testing.T) {
+	cache := newArbitrationCache(nil, nil)
+	identity := &controlv1.DataplaneIdentity{
+		Namespace:   "default",
+		Env:         "dev",
+		DataplaneId: "dp-1",
+		NodeId:      "node-1",
+	}
+
+	first := cache.ForIdentity(identity)
+	second := cache.ForIdentity(identity)
+
+	if len(cache.byKey) != 1 {
+		t.Fatalf("expected single cached arbitrator, got=%d", len(cache.byKey))
+	}
+	if len(first.snapshots) != len(second.snapshots) || len(first.policies) != len(second.policies) {
+		t.Fatal("expected repeated lookup to reuse same identity-scoped arbitration result")
+	}
+}
+
 func TestServerShouldPushFallbackPolicyOnlyWhenItIsBestCandidate(t *testing.T) {
 	store := snapshot.NewStore()
 	fallbackPolicy := &controlv1.RoutePolicy{
@@ -893,10 +913,10 @@ func TestServerShouldPushFallbackPolicyOnlyWhenItIsBestCandidate(t *testing.T) {
 		},
 	}
 
-	if srv.shouldPushPolicyToSubscriber(make(map[string]resourceArbitrator), sub, fallbackPolicy) {
+	if srv.shouldPushPolicyToSubscriber(newArbitrationCache(store.AllServiceSnapshots(), store.AllRoutePolicies()), sub, fallbackPolicy) {
 		t.Fatal("expected fallback policy to be skipped when exact policy exists")
 	}
-	if !srv.shouldPushPolicyToSubscriber(make(map[string]resourceArbitrator), sub, exactPolicy) {
+	if !srv.shouldPushPolicyToSubscriber(newArbitrationCache(store.AllServiceSnapshots(), store.AllRoutePolicies()), sub, exactPolicy) {
 		t.Fatal("expected exact policy to be selected for subscriber")
 	}
 }
@@ -942,12 +962,12 @@ func TestServerShouldPushFallbackSnapshotOnlyWhenItIsBestCandidate(t *testing.T)
 		},
 	}
 
-	if srv.shouldPushSnapshotToSubscriber(make(map[string]resourceArbitrator), sub, &controlv1.ConnectResponse{
+	if srv.shouldPushSnapshotToSubscriber(newArbitrationCache(store.AllServiceSnapshots(), store.AllRoutePolicies()), sub, &controlv1.ConnectResponse{
 		Body: &controlv1.ConnectResponse_ServiceSnapshot{ServiceSnapshot: fallbackSnapshot},
 	}) {
 		t.Fatal("expected fallback snapshot to be skipped when exact snapshot exists")
 	}
-	if !srv.shouldPushSnapshotToSubscriber(make(map[string]resourceArbitrator), sub, &controlv1.ConnectResponse{
+	if !srv.shouldPushSnapshotToSubscriber(newArbitrationCache(store.AllServiceSnapshots(), store.AllRoutePolicies()), sub, &controlv1.ConnectResponse{
 		Body: &controlv1.ConnectResponse_ServiceSnapshot{ServiceSnapshot: exactSnapshot},
 	}) {
 		t.Fatal("expected exact snapshot to be selected for subscriber")

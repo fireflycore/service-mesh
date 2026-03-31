@@ -1590,3 +1590,96 @@ func TestServerBackgroundRefreshPushesTrackedSnapshots(t *testing.T) {
 		}
 	}
 }
+
+func TestServerBackgroundWatchPushesSourceWatchUpdates(t *testing.T) {
+	provider := memory.New(nil)
+	store := snapshot.NewStore()
+	loader := snapshot.NewLoader(store, provider)
+	srv := NewWithLoader(store, loader)
+	srv.TrackTarget(model.ServiceRef{
+		Service:   "orders",
+		Namespace: "default",
+		Env:       "dev",
+	})
+
+	bgCtx, cancelBg := context.WithCancel(context.Background())
+	defer cancelBg()
+	srv.StartBackgroundWatch(bgCtx)
+
+	grpcServer := grpc.NewServer()
+	controlv1.RegisterMeshControlPlaneServiceServer(grpcServer, srv)
+
+	listener, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatalf("listen failed: %v", err)
+	}
+	defer listener.Close()
+
+	go func() {
+		_ = grpcServer.Serve(listener)
+	}()
+	defer grpcServer.Stop()
+
+	conn, err := grpc.DialContext(
+		context.Background(),
+		listener.Addr().String(),
+		grpc.WithTransportCredentials(insecure.NewCredentials()),
+	)
+	if err != nil {
+		t.Fatalf("dial failed: %v", err)
+	}
+	defer conn.Close()
+
+	stream, err := controlv1.NewMeshControlPlaneServiceClient(conn).Connect(context.Background())
+	if err != nil {
+		t.Fatalf("connect failed: %v", err)
+	}
+
+	if err := stream.Send(&controlv1.ConnectRequest{
+		Body: &controlv1.ConnectRequest_Register{
+			Register: &controlv1.DataplaneRegister{
+				Identity: &controlv1.DataplaneIdentity{
+					DataplaneId: "dp-watch",
+					Mode:        "agent",
+					NodeId:      "node-watch",
+					Namespace:   "default",
+					Service:     "service-mesh-agent",
+					Env:         "dev",
+				},
+			},
+		},
+	}); err != nil {
+		t.Fatalf("send register failed: %v", err)
+	}
+
+	provider.Upsert(model.ServiceSnapshot{
+		Service: model.ServiceRef{
+			Service:   "orders",
+			Namespace: "default",
+			Env:       "dev",
+		},
+		Endpoints: []model.Endpoint{
+			{Address: "10.0.0.23", Port: 19090, Weight: 1},
+		},
+	})
+
+	deadline := time.After(time.Second)
+	for {
+		resp, err := stream.Recv()
+		if err != nil {
+			t.Fatalf("recv failed: %v", err)
+		}
+		if resp.GetServiceSnapshot() != nil && resp.GetServiceSnapshot().GetService().GetService() == "orders" {
+			if got, want := resp.GetServiceSnapshot().GetEndpoints()[0].GetAddress(), "10.0.0.23"; got != want {
+				t.Fatalf("unexpected watch-pushed snapshot address: got=%s want=%s", got, want)
+			}
+			return
+		}
+
+		select {
+		case <-deadline:
+			t.Fatal("expected watch update to push snapshot")
+		default:
+		}
+	}
+}

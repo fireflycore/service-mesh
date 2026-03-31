@@ -24,6 +24,8 @@ type Server struct {
 	mu             sync.RWMutex
 	subscribers    map[uint64]*subscriber
 	trackedTargets map[string]model.ServiceRef
+	watchedTargets map[string]struct{}
+	watchCtx       context.Context
 	nextSubscriber uint64
 }
 
@@ -45,6 +47,7 @@ func NewWithLoader(store *snapshot.Store, loader *snapshot.Loader) *Server {
 		loader:         loader,
 		subscribers:    make(map[uint64]*subscriber),
 		trackedTargets: make(map[string]model.ServiceRef),
+		watchedTargets: make(map[string]struct{}),
 	}
 }
 
@@ -192,8 +195,13 @@ func (s *Server) TrackTarget(target model.ServiceRef) {
 	}
 
 	s.mu.Lock()
-	defer s.mu.Unlock()
 	s.trackedTargets[targetKey(target)] = target
+	watchCtx := s.watchCtx
+	s.mu.Unlock()
+
+	if watchCtx != nil {
+		s.startTargetWatch(watchCtx, target)
+	}
 }
 
 // UpsertRoutePolicy 写入或更新指定服务的路由策略，并按订阅目标/身份主动推送。
@@ -268,6 +276,24 @@ func (s *Server) StartBackgroundRefresh(ctx context.Context, interval time.Durat
 			}
 		}
 	}()
+}
+
+func (s *Server) StartBackgroundWatch(ctx context.Context) {
+	if ctx == nil {
+		return
+	}
+
+	s.mu.Lock()
+	s.watchCtx = ctx
+	targets := make([]model.ServiceRef, 0, len(s.trackedTargets))
+	for _, target := range s.trackedTargets {
+		targets = append(targets, target)
+	}
+	s.mu.Unlock()
+
+	for _, target := range targets {
+		s.startTargetWatch(ctx, target)
+	}
 }
 
 func (s *Server) addSubscriber() (uint64, <-chan *controlv1.ConnectResponse) {
@@ -378,4 +404,50 @@ func (s *Server) lookupSubscriber(id uint64) *subscriber {
 		return nil
 	}
 	return subscriber
+}
+
+func (s *Server) startTargetWatch(ctx context.Context, target model.ServiceRef) {
+	if s.loader == nil || ctx == nil || strings.TrimSpace(target.Service) == "" {
+		return
+	}
+
+	key := targetKey(target)
+
+	s.mu.Lock()
+	if _, ok := s.watchedTargets[key]; ok {
+		s.mu.Unlock()
+		return
+	}
+	s.watchedTargets[key] = struct{}{}
+	s.mu.Unlock()
+
+	updates, err := s.loader.Watch(ctx, target)
+	if err != nil || updates == nil {
+		s.mu.Lock()
+		delete(s.watchedTargets, key)
+		s.mu.Unlock()
+		return
+	}
+
+	go func() {
+		defer func() {
+			s.mu.Lock()
+			delete(s.watchedTargets, key)
+			s.mu.Unlock()
+		}()
+
+		for {
+			select {
+			case <-ctx.Done():
+				return
+			case update, ok := <-updates:
+				if !ok {
+					return
+				}
+				if update.Snapshot != nil {
+					s.broadcastForTarget(snapshotResponse(update.Snapshot), update.Target)
+				}
+			}
+		}
+	}()
 }

@@ -3,11 +3,13 @@ package consul
 import (
 	"context"
 	"fmt"
+	"reflect"
 	"strings"
 	"time"
 
 	"github.com/fireflycore/service-mesh/pkg/config"
 	"github.com/fireflycore/service-mesh/pkg/model"
+	"github.com/fireflycore/service-mesh/source/watchapi"
 	"github.com/hashicorp/consul/api"
 )
 
@@ -113,6 +115,55 @@ func (p *Provider) Resolve(ctx context.Context, target model.ServiceRef) (model.
 	return snapshot, nil
 }
 
+func (p *Provider) Watch(ctx context.Context, target model.ServiceRef) (watchapi.Stream, error) {
+	stream := newPollWatchStream()
+	go func() {
+		defer stream.Close()
+
+		interval := durationFromQueryMS(p.Config.QueryTimeoutMS)
+		ticker := time.NewTicker(interval)
+		defer ticker.Stop()
+
+		var last model.ServiceSnapshot
+		var hasLast bool
+		poll := func() bool {
+			snapshot, err := p.Resolve(ctx, target)
+			if err != nil {
+				if hasLast {
+					hasLast = false
+					last = model.ServiceSnapshot{}
+					stream.publish(watchapi.Event{
+						Kind:   watchapi.EventDelete,
+						Target: target,
+					})
+				}
+				return true
+			}
+			if !hasLast || !reflect.DeepEqual(last, snapshot) {
+				hasLast = true
+				last = snapshot
+				stream.publish(watchapi.Event{
+					Kind:     watchapi.EventUpsert,
+					Target:   snapshot.Service,
+					Snapshot: snapshot,
+				})
+			}
+			return true
+		}
+
+		poll()
+		for {
+			select {
+			case <-ctx.Done():
+				return
+			case <-ticker.C:
+				poll()
+			}
+		}
+	}()
+	return stream, nil
+}
+
 func (p *Provider) queryContext(parent context.Context) (context.Context, context.CancelFunc) {
 	timeout := time.Second
 	if p.Config.QueryTimeoutMS > 0 {
@@ -122,6 +173,13 @@ func (p *Provider) queryContext(parent context.Context) (context.Context, contex
 		return context.WithCancel(parent)
 	}
 	return context.WithTimeout(parent, timeout)
+}
+
+func durationFromQueryMS(value uint64) time.Duration {
+	if value == 0 {
+		return time.Second
+	}
+	return time.Duration(value) * time.Millisecond
 }
 
 // decodeEndpoint 从 Consul 的 ServiceEntry 中提取最小 endpoint 信息。
@@ -146,4 +204,33 @@ func decodeEndpoint(row *api.ServiceEntry) (model.Endpoint, bool) {
 		// 当前 Consul provider 先统一给 1，后续再视需要接入权重语义。
 		Weight: 1,
 	}, true
+}
+
+type pollWatchStream struct {
+	events chan watchapi.Event
+}
+
+func newPollWatchStream() *pollWatchStream {
+	return &pollWatchStream{
+		events: make(chan watchapi.Event, 8),
+	}
+}
+
+func (s *pollWatchStream) Events() <-chan watchapi.Event {
+	return s.events
+}
+
+func (s *pollWatchStream) Close() error {
+	defer func() {
+		recover()
+	}()
+	close(s.events)
+	return nil
+}
+
+func (s *pollWatchStream) publish(event watchapi.Event) {
+	select {
+	case s.events <- event:
+	default:
+	}
 }

@@ -1,29 +1,18 @@
 package source
 
 import (
-	"context"
-
-	"github.com/fireflycore/service-mesh/pkg/model"
+	"github.com/fireflycore/service-mesh/source/watchapi"
 )
 
-type WatchEventKind string
+type WatchEventKind = watchapi.EventKind
 
 const (
-	WatchEventUpsert WatchEventKind = "upsert"
-	WatchEventDelete WatchEventKind = "delete"
+	WatchEventUpsert WatchEventKind = watchapi.EventUpsert
+	WatchEventDelete WatchEventKind = watchapi.EventDelete
 )
 
-type WatchEvent struct {
-	Kind     WatchEventKind
-	Target   model.ServiceRef
-	Snapshot model.ServiceSnapshot
-}
+type WatchEvent = watchapi.Event
 
-type WatchStream interface {
-	Events() <-chan WatchEvent
-	Close() error
-}
+type WatchStream = watchapi.Stream
 
-type WatchCapable interface {
-	Watch(ctx context.Context, target model.ServiceRef) (WatchStream, error)
-}
+type WatchCapable = watchapi.Capable

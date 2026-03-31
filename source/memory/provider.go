@@ -6,7 +6,7 @@ import (
 	"sync"
 
 	"github.com/fireflycore/service-mesh/pkg/model"
-	"github.com/fireflycore/service-mesh/source"
+	"github.com/fireflycore/service-mesh/source/watchapi"
 )
 
 // Provider 是一个纯内存目录源，主要给单元测试使用。
@@ -14,7 +14,7 @@ type Provider struct {
 	mu sync.RWMutex
 	// snapshots 直接按 serviceKey 保存测试预置的结果。
 	snapshots map[string]model.ServiceSnapshot
-	watchers  map[string]map[uint64]chan source.WatchEvent
+	watchers  map[string]map[uint64]chan watchapi.Event
 	nextWatch uint64
 }
 
@@ -31,7 +31,7 @@ func New(snapshots map[string]model.ServiceSnapshot) *Provider {
 	}
 	return &Provider{
 		snapshots: cloned,
-		watchers:  make(map[string]map[uint64]chan source.WatchEvent),
+		watchers:  make(map[string]map[uint64]chan watchapi.Event),
 	}
 }
 
@@ -54,7 +54,7 @@ func (p *Provider) Resolve(_ context.Context, target model.ServiceRef) (model.Se
 	return snapshot, nil
 }
 
-func (p *Provider) Watch(ctx context.Context, target model.ServiceRef) (source.WatchStream, error) {
+func (p *Provider) Watch(ctx context.Context, target model.ServiceRef) (watchapi.Stream, error) {
 	key := serviceKey(target)
 
 	p.mu.Lock()
@@ -63,9 +63,9 @@ func (p *Provider) Watch(ctx context.Context, target model.ServiceRef) (source.W
 	p.nextWatch++
 	id := p.nextWatch
 	if p.watchers[key] == nil {
-		p.watchers[key] = make(map[uint64]chan source.WatchEvent)
+		p.watchers[key] = make(map[uint64]chan watchapi.Event)
 	}
-	ch := make(chan source.WatchEvent, 8)
+	ch := make(chan watchapi.Event, 8)
 	p.watchers[key][id] = ch
 
 	stream := &watchStream{
@@ -103,8 +103,8 @@ func (p *Provider) Upsert(snapshot model.ServiceSnapshot) {
 	watchers := cloneWatchers(p.watchers[key])
 	p.mu.Unlock()
 
-	event := source.WatchEvent{
-		Kind:     source.WatchEventUpsert,
+	event := watchapi.Event{
+		Kind:     watchapi.EventUpsert,
 		Target:   snapshot.Service,
 		Snapshot: snapshot,
 	}
@@ -124,8 +124,8 @@ func (p *Provider) Delete(target model.ServiceRef) {
 	watchers := cloneWatchers(p.watchers[key])
 	p.mu.Unlock()
 
-	event := source.WatchEvent{
-		Kind:   source.WatchEventDelete,
+	event := watchapi.Event{
+		Kind:   watchapi.EventDelete,
 		Target: target,
 	}
 	for _, ch := range watchers {
@@ -142,12 +142,12 @@ func serviceKey(target model.ServiceRef) string {
 }
 
 type watchStream struct {
-	events chan source.WatchEvent
+	events chan watchapi.Event
 	once   sync.Once
 	close  func()
 }
 
-func (s *watchStream) Events() <-chan source.WatchEvent {
+func (s *watchStream) Events() <-chan watchapi.Event {
 	return s.events
 }
 
@@ -163,8 +163,8 @@ func (s *watchStream) Close() error {
 	return nil
 }
 
-func cloneWatchers(watchers map[uint64]chan source.WatchEvent) []chan source.WatchEvent {
-	result := make([]chan source.WatchEvent, 0, len(watchers))
+func cloneWatchers(watchers map[uint64]chan watchapi.Event) []chan watchapi.Event {
+	result := make([]chan watchapi.Event, 0, len(watchers))
 	for _, ch := range watchers {
 		if ch == nil {
 			continue

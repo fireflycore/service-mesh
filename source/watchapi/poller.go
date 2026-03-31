@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/fireflycore/service-mesh/pkg/model"
+	"github.com/fireflycore/service-mesh/source/sourceerr"
 )
 
 type SnapshotPoller func(context.Context) (model.ServiceSnapshot, bool, error)
@@ -16,6 +17,7 @@ type SnapshotPoller func(context.Context) (model.ServiceSnapshot, bool, error)
 const (
 	defaultDegradeAfterConsecutiveErrors = 3
 	ErrorClassNotFound                   = "not_found"
+	ErrorClassEmpty                      = "empty"
 	ErrorClassTimeout                    = "timeout"
 	ErrorClassUnavailable                = "unavailable"
 	ErrorClassInternal                   = "internal"
@@ -149,6 +151,8 @@ func classifyPollingError(err error) string {
 		return ErrorClassTimeout
 	case errors.Is(err, context.Canceled):
 		return ErrorClassUnavailable
+	case errors.Is(err, sourceerr.ErrNoHealthyEndpoints):
+		return ErrorClassEmpty
 	default:
 		return ErrorClassUnavailable
 	}

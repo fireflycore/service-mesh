@@ -3,10 +3,12 @@ package watchapi
 import (
 	"context"
 	"errors"
+	"fmt"
 	"testing"
 	"time"
 
 	"github.com/fireflycore/service-mesh/pkg/model"
+	"github.com/fireflycore/service-mesh/source/sourceerr"
 )
 
 func TestRunPollingEmitsUpsertAndDelete(t *testing.T) {
@@ -202,5 +204,12 @@ func TestRunPollingFormatsTimeoutReason(t *testing.T) {
 	_ = formatPollingErrorReason(context.DeadlineExceeded)
 	if got, want := formatPollingErrorReason(context.DeadlineExceeded), "class=timeout error=context deadline exceeded"; got != want {
 		t.Fatalf("unexpected timeout error reason: got=%s want=%s", got, want)
+	}
+}
+
+func TestRunPollingFormatsEmptyReason(t *testing.T) {
+	err := fmt.Errorf("%w: etcd service=orders", sourceerr.ErrNoHealthyEndpoints)
+	if got, want := formatPollingErrorReason(err), "class=empty error=no healthy source endpoints: etcd service=orders"; got != want {
+		t.Fatalf("unexpected empty error reason: got=%s want=%s", got, want)
 	}
 }

@@ -31,7 +31,7 @@
 - M14
   - controlplane 主路径已经成立，但状态变化还缺更明确的观测出口
 - M15
-  - source/watch 错误分类仍是最小实现
+  - source/watch 错误分类已具备基础统一实现，但 provider-specific 策略仍需继续细化
   - `stale / degraded` 已能传播，且已有最小日志/指标出口，但还不够完整
   - provider-specific 的错误分类策略仍未单独细化
 - M16

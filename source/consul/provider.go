@@ -8,6 +8,7 @@ import (
 
 	"github.com/fireflycore/service-mesh/pkg/config"
 	"github.com/fireflycore/service-mesh/pkg/model"
+	"github.com/fireflycore/service-mesh/source/sourceerr"
 	"github.com/fireflycore/service-mesh/source/watchapi"
 	"github.com/hashicorp/consul/api"
 )
@@ -108,7 +109,7 @@ func (p *Provider) Resolve(ctx context.Context, target model.ServiceRef) (model.
 	}
 
 	if len(snapshot.Endpoints) == 0 {
-		return model.ServiceSnapshot{}, fmt.Errorf("no healthy consul endpoints found for service %s", target.Service)
+		return model.ServiceSnapshot{}, fmt.Errorf("%w: consul service=%s", sourceerr.ErrNoHealthyEndpoints, target.Service)
 	}
 
 	return snapshot, nil

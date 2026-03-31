@@ -23,3 +23,9 @@ func TestSnapshotStatusLabel(t *testing.T) {
 		t.Fatalf("unexpected degraded label: got=%s want=%s", got, want)
 	}
 }
+
+func TestSnapshotReasonClassEmpty(t *testing.T) {
+	if got, want := snapshotReasonClass("class=empty error=no healthy source endpoints: etcd service=orders"), "empty"; got != want {
+		t.Fatalf("unexpected empty reason class: got=%s want=%s", got, want)
+	}
+}

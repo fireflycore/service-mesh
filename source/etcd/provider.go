@@ -11,6 +11,7 @@ import (
 
 	"github.com/fireflycore/service-mesh/pkg/config"
 	"github.com/fireflycore/service-mesh/pkg/model"
+	"github.com/fireflycore/service-mesh/source/sourceerr"
 	"github.com/fireflycore/service-mesh/source/watchapi"
 	mvccpb "go.etcd.io/etcd/api/v3/mvccpb"
 	clientv3 "go.etcd.io/etcd/client/v3"
@@ -135,7 +136,7 @@ func (p *Provider) Resolve(ctx context.Context, target model.ServiceRef) (model.
 	}
 
 	if len(snapshot.Endpoints) == 0 {
-		return model.ServiceSnapshot{}, fmt.Errorf("no healthy etcd endpoints found for service %s", service)
+		return model.ServiceSnapshot{}, fmt.Errorf("%w: etcd service=%s", sourceerr.ErrNoHealthyEndpoints, service)
 	}
 
 	return snapshot, nil

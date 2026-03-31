@@ -114,6 +114,25 @@ func (b deliveryBatch) DeliveryCount() int {
 	return len(b.deliveries)
 }
 
+func (b deliveryBatch) Explain() batchExplainSummary {
+	summary := batchExplainSummary{
+		streamResponses: len(b.streamResponses),
+	}
+	for _, resp := range b.streamResponses {
+		switch responseKind(resp) {
+		case "service_snapshot":
+			summary.serviceSnapshots++
+		case "service_snapshot_deleted":
+			summary.serviceSnapshotDeleted++
+		case "route_policy":
+			summary.routePolicies++
+		default:
+			summary.unknown++
+		}
+	}
+	return summary
+}
+
 func snapshotResponse(snapshot *controlv1.ServiceSnapshot) *controlv1.ConnectResponse {
 	if snapshot == nil {
 		return nil

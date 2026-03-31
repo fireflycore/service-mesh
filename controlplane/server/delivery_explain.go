@@ -6,12 +6,24 @@ import (
 )
 
 type deliveryExplainSummary struct {
-	responseKind       string
-	target             model.ServiceRef
-	delivered          int
-	deniedSubscription int
-	deniedIdentity     int
-	deniedArbitration  int
+	responseKind         string
+	target               model.ServiceRef
+	delivered            int
+	deniedSubscription   int
+	deniedIdentity       int
+	deniedArbitration    int
+	subscriptionExact    int
+	subscriptionFallback int
+	identityExact        int
+	identityFallback     int
+}
+
+type batchExplainSummary struct {
+	streamResponses        int
+	serviceSnapshots       int
+	serviceSnapshotDeleted int
+	routePolicies          int
+	unknown                int
 }
 
 func responseKind(resp *controlv1.ConnectResponse) string {

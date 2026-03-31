@@ -71,6 +71,7 @@
 - register replay 会输出 identity 与回放响应数量
 - subscribe replay 会输出 identity、目标数量与回放数量
 - target push 会输出 delivered / denied_subscription / denied_identity / denied_arbitration
+- target push 也开始输出 subscription / identity 的 exact / fallback 统计
 
 ### 第三优先级：M18 最小观测补强
 

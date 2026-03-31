@@ -194,6 +194,18 @@ func (d deliveryCycle) ExplainTargetResponse(subscribers map[uint64]*subscriber,
 			continue
 		}
 		match := evaluateSelectorMatch(selectorFromSubscriber(subscriber), selectorFromResponse(resp, target))
+		switch match.subscription {
+		case matchPriorityExact:
+			summary.subscriptionExact++
+		case matchPriorityFallback:
+			summary.subscriptionFallback++
+		}
+		switch match.identity {
+		case matchPriorityExact:
+			summary.identityExact++
+		case matchPriorityFallback:
+			summary.identityFallback++
+		}
 		if match.subscription == matchPriorityNone {
 			summary.deniedSubscription++
 			continue

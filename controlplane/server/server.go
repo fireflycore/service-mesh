@@ -184,13 +184,16 @@ func (s *Server) handleRegister(stream grpc.BidiStreamingServer[controlv1.Connec
 		return nil
 	}
 	batch := newDeliveryCycle(s.store).RegisterBatch(register.GetIdentity())
+	explain := batch.Explain()
 	identity := register.GetIdentity()
 	slog.Info("controlplane register replay prepared",
 		slog.String("dataplane_id", identity.GetDataplaneId()),
 		slog.String("node_id", identity.GetNodeId()),
 		slog.String("namespace", identity.GetNamespace()),
 		slog.String("env", identity.GetEnv()),
-		slog.Int("stream_responses", batch.StreamCount()),
+		slog.Int("stream_responses", explain.streamResponses),
+		slog.Int("snapshot_count", explain.serviceSnapshots),
+		slog.Int("route_policy_count", explain.routePolicies),
 	)
 	return batch.Send(stream)
 }
@@ -242,6 +245,7 @@ func (s *Server) handleSubscribe(stream grpc.BidiStreamingServer[controlv1.Conne
 	}
 
 	batch := cycle.SubscribeBatch(subscriber, targets, changed)
+	explain := batch.Explain()
 	if subscriber != nil && subscriber.identity != nil {
 		slog.Info("controlplane subscribe replay prepared",
 			slog.String("dataplane_id", subscriber.identity.GetDataplaneId()),
@@ -250,7 +254,9 @@ func (s *Server) handleSubscribe(stream grpc.BidiStreamingServer[controlv1.Conne
 			slog.String("env", subscriber.identity.GetEnv()),
 			slog.Int("target_count", len(targets)),
 			slog.Int("changed_snapshot_count", len(changed)),
-			slog.Int("stream_responses", batch.StreamCount()),
+			slog.Int("stream_responses", explain.streamResponses),
+			slog.Int("snapshot_count", explain.serviceSnapshots),
+			slog.Int("route_policy_count", explain.routePolicies),
 		)
 	}
 	return batch.Send(stream)
@@ -405,6 +411,10 @@ func (s *Server) broadcastForTarget(resp *controlv1.ConnectResponse, target mode
 		slog.String("namespace", target.Namespace),
 		slog.String("env", target.Env),
 		slog.Int("delivered", summary.delivered),
+		slog.Int("subscription_exact", summary.subscriptionExact),
+		slog.Int("subscription_fallback", summary.subscriptionFallback),
+		slog.Int("identity_exact", summary.identityExact),
+		slog.Int("identity_fallback", summary.identityFallback),
 		slog.Int("denied_subscription", summary.deniedSubscription),
 		slog.Int("denied_identity", summary.deniedIdentity),
 		slog.Int("denied_arbitration", summary.deniedArbitration),

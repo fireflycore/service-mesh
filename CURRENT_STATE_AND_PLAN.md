@@ -72,6 +72,7 @@
 - subscribe replay 会输出 identity、目标数量与回放数量
 - target push 会输出 delivered / denied_subscription / denied_identity / denied_arbitration
 - target push 也开始输出 subscription / identity 的 exact / fallback 统计
+- register / subscribe replay 也开始输出 snapshot / route policy 的 exact / fallback 命中统计
 
 ### 第三优先级：M18 最小观测补强
 

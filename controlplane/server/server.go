@@ -183,7 +183,10 @@ func (s *Server) handleRegister(stream grpc.BidiStreamingServer[controlv1.Connec
 	if register == nil || register.GetIdentity() == nil {
 		return nil
 	}
-	batch := newDeliveryCycle(s.store).RegisterBatch(register.GetIdentity())
+	cycle := newDeliveryCycle(s.store)
+	arbitrator := cycle.ForIdentity(register.GetIdentity())
+	replayExplain := arbitrator.Explain(register.GetIdentity())
+	batch := cycle.RegisterBatch(register.GetIdentity())
 	explain := batch.Explain()
 	identity := register.GetIdentity()
 	slog.Info("controlplane register replay prepared",
@@ -193,7 +196,11 @@ func (s *Server) handleRegister(stream grpc.BidiStreamingServer[controlv1.Connec
 		slog.String("env", identity.GetEnv()),
 		slog.Int("stream_responses", explain.streamResponses),
 		slog.Int("snapshot_count", explain.serviceSnapshots),
+		slog.Int("snapshot_exact", replayExplain.snapshotExact),
+		slog.Int("snapshot_fallback", replayExplain.snapshotFallback),
 		slog.Int("route_policy_count", explain.routePolicies),
+		slog.Int("route_policy_exact", replayExplain.policyExact),
+		slog.Int("route_policy_fallback", replayExplain.policyFallback),
 	)
 	return batch.Send(stream)
 }
@@ -244,6 +251,10 @@ func (s *Server) handleSubscribe(stream grpc.BidiStreamingServer[controlv1.Conne
 		}
 	}
 
+	replayExplain := replayExplainSummary{}
+	if subscriber != nil {
+		replayExplain = cycle.ForSubscriber(subscriber).Explain(subscriber.identity)
+	}
 	batch := cycle.SubscribeBatch(subscriber, targets, changed)
 	explain := batch.Explain()
 	if subscriber != nil && subscriber.identity != nil {
@@ -256,7 +267,11 @@ func (s *Server) handleSubscribe(stream grpc.BidiStreamingServer[controlv1.Conne
 			slog.Int("changed_snapshot_count", len(changed)),
 			slog.Int("stream_responses", explain.streamResponses),
 			slog.Int("snapshot_count", explain.serviceSnapshots),
+			slog.Int("snapshot_exact", replayExplain.snapshotExact),
+			slog.Int("snapshot_fallback", replayExplain.snapshotFallback),
 			slog.Int("route_policy_count", explain.routePolicies),
+			slog.Int("route_policy_exact", replayExplain.policyExact),
+			slog.Int("route_policy_fallback", replayExplain.policyFallback),
 		)
 	}
 	return batch.Send(stream)

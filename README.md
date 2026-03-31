@@ -125,6 +125,7 @@ service
   - `consul / etcd` 的“空健康实例”错误已开始收敛为统一 `empty` 类，便于后续做 provider-specific 错误策略
   - M16 也已开始补 explain：register / subscribe / target push 会输出 identity 与投递决策摘要
   - push explain 现在已细化到 subscription / identity 的 exact / fallback 命中统计
+  - register / subscribe replay 也开始输出 snapshot / route policy 的 exact / fallback 命中统计
   - consul / etcd / ext_authz / telemetry 初始化等外部交互已补齐默认超时保护，避免缺环境时长时间挂起
 
 ## 设计原则

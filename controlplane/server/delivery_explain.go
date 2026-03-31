@@ -26,6 +26,13 @@ type batchExplainSummary struct {
 	unknown                int
 }
 
+type replayExplainSummary struct {
+	snapshotExact    int
+	snapshotFallback int
+	policyExact      int
+	policyFallback   int
+}
+
 func responseKind(resp *controlv1.ConnectResponse) string {
 	switch {
 	case resp == nil:

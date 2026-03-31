@@ -213,6 +213,27 @@ func (a resourceArbitrator) SelectedPolicies() []*controlv1.RoutePolicy {
 	return collectPolicies(a.policies)
 }
 
+func (a resourceArbitrator) Explain(identity *controlv1.DataplaneIdentity) replayExplainSummary {
+	summary := replayExplainSummary{}
+	for _, snapshot := range a.SelectedSnapshots() {
+		switch matchIdentityScope(snapshot.GetService(), identity) {
+		case matchPriorityExact:
+			summary.snapshotExact++
+		case matchPriorityFallback:
+			summary.snapshotFallback++
+		}
+	}
+	for _, policy := range a.SelectedPolicies() {
+		switch matchIdentityScope(policy.GetService(), identity) {
+		case matchPriorityExact:
+			summary.policyExact++
+		case matchPriorityFallback:
+			summary.policyFallback++
+		}
+	}
+	return summary
+}
+
 func (a resourceArbitrator) SnapshotForTarget(target model.ServiceRef) *controlv1.ServiceSnapshot {
 	return a.snapshots[resourceFamilyKey(&controlv1.ServiceRef{
 		Service:   target.Service,

@@ -2085,3 +2085,58 @@ func TestDeliveryCycleExplainTargetResponse(t *testing.T) {
 		t.Fatalf("unexpected denied identity count: got=%d want=%d", got, want)
 	}
 }
+
+func TestResourceArbitratorExplain(t *testing.T) {
+	identity := &controlv1.DataplaneIdentity{
+		DataplaneId: "dp-explain",
+		Namespace:   "default",
+		Env:         "dev",
+	}
+	arbitrator := newResourceArbitrator(
+		[]*controlv1.ServiceSnapshot{
+			{
+				Service: &controlv1.ServiceRef{
+					Service:   "orders",
+					Namespace: "default",
+					Env:       "dev",
+				},
+			},
+			{
+				Service: &controlv1.ServiceRef{
+					Service:   "payments",
+					Namespace: "default",
+				},
+			},
+		},
+		[]*controlv1.RoutePolicy{
+			{
+				Service: &controlv1.ServiceRef{
+					Service:   "orders",
+					Namespace: "default",
+					Env:       "dev",
+				},
+			},
+			{
+				Service: &controlv1.ServiceRef{
+					Service:   "payments",
+					Namespace: "default",
+				},
+			},
+		},
+		identity,
+	)
+
+	summary := arbitrator.Explain(identity)
+	if got, want := summary.snapshotExact, 1; got != want {
+		t.Fatalf("unexpected snapshot exact count: got=%d want=%d", got, want)
+	}
+	if got, want := summary.snapshotFallback, 1; got != want {
+		t.Fatalf("unexpected snapshot fallback count: got=%d want=%d", got, want)
+	}
+	if got, want := summary.policyExact, 1; got != want {
+		t.Fatalf("unexpected policy exact count: got=%d want=%d", got, want)
+	}
+	if got, want := summary.policyFallback, 1; got != want {
+		t.Fatalf("unexpected policy fallback count: got=%d want=%d", got, want)
+	}
+}

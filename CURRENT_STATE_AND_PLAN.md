@@ -74,6 +74,7 @@
 - target push 也开始输出 subscription / identity 的 exact / fallback 统计
 - register / subscribe replay 也开始输出 snapshot / route policy 的 exact / fallback 命中统计
 - explain 统计也开始进入 controlplane telemetry 指标出口
+- target push 已开始输出 subscriber 级 decision trace 摘要，便于直接排查投递命中路径
 
 ### 第三优先级：M18 最小观测补强
 

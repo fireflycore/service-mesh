@@ -194,6 +194,11 @@ func (d deliveryCycle) ExplainTargetResponse(subscribers map[uint64]*subscriber,
 			continue
 		}
 		match := evaluateSelectorMatch(selectorFromSubscriber(subscriber), selectorFromResponse(resp, target))
+		trace := deliveryDecisionTrace{
+			dataplaneID:       subscriberDataplaneID(subscriber),
+			subscriptionMatch: match.subscriptionLabel(),
+			identityMatch:     match.identityLabel(),
+		}
 		switch match.subscription {
 		case matchPriorityExact:
 			summary.subscriptionExact++
@@ -208,17 +213,25 @@ func (d deliveryCycle) ExplainTargetResponse(subscribers map[uint64]*subscriber,
 		}
 		if match.subscription == matchPriorityNone {
 			summary.deniedSubscription++
+			trace.decision = "denied_subscription"
+			summary.trace = append(summary.trace, trace)
 			continue
 		}
 		if match.identity == matchPriorityNone {
 			summary.deniedIdentity++
+			trace.decision = "denied_identity"
+			summary.trace = append(summary.trace, trace)
 			continue
 		}
 		if !d.AllowsResponse(subscriber, resp) {
 			summary.deniedArbitration++
+			trace.decision = "denied_arbitration"
+			summary.trace = append(summary.trace, trace)
 			continue
 		}
 		summary.delivered++
+		trace.decision = "delivered"
+		summary.trace = append(summary.trace, trace)
 	}
 	return summary
 }
@@ -228,4 +241,11 @@ func (d deliveryCycle) AllowsTargetResponse(subscriber *subscriber, resp *contro
 		return false
 	}
 	return d.AllowsResponse(subscriber, resp)
+}
+
+func subscriberDataplaneID(subscriber *subscriber) string {
+	if subscriber == nil || subscriber.identity == nil {
+		return ""
+	}
+	return subscriber.identity.GetDataplaneId()
 }

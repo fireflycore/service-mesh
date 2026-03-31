@@ -127,6 +127,7 @@ service
   - push explain 现在已细化到 subscription / identity 的 exact / fallback 命中统计
   - register / subscribe replay 也开始输出 snapshot / route policy 的 exact / fallback 命中统计
   - explain 统计已开始进入 controlplane telemetry，给后续指标化排障打底
+  - target push 已开始输出 subscriber 级 decision trace 摘要，便于直接排查投递命中路径
   - consul / etcd / ext_authz / telemetry 初始化等外部交互已补齐默认超时保护，避免缺环境时长时间挂起
 
 ## 设计原则

@@ -2084,6 +2084,18 @@ func TestDeliveryCycleExplainTargetResponse(t *testing.T) {
 	if got, want := summary.deniedIdentity, 0; got != want {
 		t.Fatalf("unexpected denied identity count: got=%d want=%d", got, want)
 	}
+	if got, want := len(summary.trace), 2; got != want {
+		t.Fatalf("unexpected trace length: got=%d want=%d", got, want)
+	}
+	if got, want := summary.trace[0].decision, "delivered"; got != want {
+		t.Fatalf("unexpected first trace decision: got=%s want=%s", got, want)
+	}
+	if got, want := summary.trace[1].decision, "denied_subscription"; got != want {
+		t.Fatalf("unexpected second trace decision: got=%s want=%s", got, want)
+	}
+	if got := summary.traceString(2); got == "" {
+		t.Fatal("expected trace string to be populated")
+	}
 }
 
 func TestResourceArbitratorExplain(t *testing.T) {

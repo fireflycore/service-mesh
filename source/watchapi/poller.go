@@ -22,17 +22,35 @@ func RunPolling(ctx context.Context, interval time.Duration, target model.Servic
 		ticker := time.NewTicker(interval)
 		defer ticker.Stop()
 
-		var last model.ServiceSnapshot
-		var hasLast bool
+		var current model.ServiceSnapshot
+		var hasCurrent bool
+		var emitted model.ServiceSnapshot
+		var hasEmitted bool
 		run := func() {
 			snapshot, found, err := poll(ctx)
 			if err != nil {
+				if hasCurrent {
+					stale := current
+					stale.Status = model.SnapshotStatusStale
+					stale.StatusReason = err.Error()
+					if !hasEmitted || !reflect.DeepEqual(emitted, stale) {
+						emitted = stale
+						hasEmitted = true
+						stream.publish(Event{
+							Kind:     EventUpsert,
+							Target:   stale.Service,
+							Snapshot: stale,
+						})
+					}
+				}
 				return
 			}
 			if !found {
-				if hasLast {
-					hasLast = false
-					last = model.ServiceSnapshot{}
+				if hasEmitted {
+					hasCurrent = false
+					current = model.ServiceSnapshot{}
+					emitted = model.ServiceSnapshot{}
+					hasEmitted = false
 					stream.publish(Event{
 						Kind:   EventDelete,
 						Target: target,
@@ -40,9 +58,15 @@ func RunPolling(ctx context.Context, interval time.Duration, target model.Servic
 				}
 				return
 			}
-			if !hasLast || !reflect.DeepEqual(last, snapshot) {
-				hasLast = true
-				last = snapshot
+			current = snapshot
+			hasCurrent = true
+			if snapshot.Status == "" {
+				snapshot.Status = model.SnapshotStatusCurrent
+			}
+			snapshot.StatusReason = ""
+			if !hasEmitted || !reflect.DeepEqual(emitted, snapshot) {
+				emitted = snapshot
+				hasEmitted = true
 				stream.publish(Event{
 					Kind:     EventUpsert,
 					Target:   snapshot.Service,

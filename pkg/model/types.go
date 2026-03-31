@@ -12,6 +12,10 @@ const (
 	SidecarTargetModeUpstreamOnly               = "upstream_only"
 	SidecarTargetModeAllowSameService           = "allow_same_service"
 	SidecarTargetModeAllowCrossScopeSameService = "allow_cross_scope_same_service"
+
+	SnapshotStatusCurrent  = "current"
+	SnapshotStatusStale    = "stale"
+	SnapshotStatusDegraded = "degraded"
 )
 
 // ServiceRef 描述一个逻辑服务目标。
@@ -44,4 +48,8 @@ type ServiceSnapshot struct {
 	Endpoints []Endpoint
 	// Revision 用于标记控制面或目录快照版本。
 	Revision string
+	// Status 用于表达 current / stale / degraded 等控制面语义。
+	Status string
+	// StatusReason 用于给 stale / degraded 提供最小可观察原因。
+	StatusReason string
 }

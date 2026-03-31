@@ -38,10 +38,19 @@ message ServiceRef {
   uint32 port = 4;
 }
 
+enum SnapshotStatus {
+  SNAPSHOT_STATUS_UNSPECIFIED = 0;
+  SNAPSHOT_STATUS_CURRENT = 1;
+  SNAPSHOT_STATUS_STALE = 2;
+  SNAPSHOT_STATUS_DEGRADED = 3;
+}
+
 message ServiceSnapshot {
   ServiceRef service = 1;
   repeated Endpoint endpoints = 2;
   string revision = 3;
+  SnapshotStatus status = 4;
+  string status_reason = 5;
 }
 
 message ServiceSnapshotDeleted {

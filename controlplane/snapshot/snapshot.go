@@ -66,11 +66,23 @@ func (s *Store) DeleteServiceSnapshot(target model.ServiceRef) bool {
 		Env:       target.Env,
 		Port:      target.Port,
 	})
-	if _, ok := s.snapshots[key]; !ok {
-		return false
+	deleted := false
+	if _, ok := s.snapshots[key]; ok {
+		delete(s.snapshots, key)
+		deleted = true
 	}
-	delete(s.snapshots, key)
-	return true
+	if strings.TrimSpace(target.Env) != "" {
+		fallbackKey := serviceKey(&controlv1.ServiceRef{
+			Service:   target.Service,
+			Namespace: target.Namespace,
+			Port:      target.Port,
+		})
+		if _, ok := s.snapshots[fallbackKey]; ok {
+			delete(s.snapshots, fallbackKey)
+			deleted = true
+		}
+	}
+	return deleted
 }
 
 // PutModelSnapshot 把 source 层内部快照转换为控制面 proto 快照并写入 store。
@@ -185,8 +197,10 @@ func toProtoSnapshot(snapshot model.ServiceSnapshot) *controlv1.ServiceSnapshot 
 			Env:       snapshot.Service.Env,
 			Port:      snapshot.Service.Port,
 		},
-		Endpoints: endpoints,
-		Revision:  snapshot.Revision,
+		Endpoints:    endpoints,
+		Revision:     snapshot.Revision,
+		Status:       toProtoSnapshotStatus(snapshot.Status),
+		StatusReason: snapshot.StatusReason,
 	}
 }
 
@@ -213,6 +227,9 @@ func equalSnapshotsIgnoringRevision(a, b *controlv1.ServiceSnapshot) bool {
 	if len(a.GetEndpoints()) != len(b.GetEndpoints()) {
 		return false
 	}
+	if a.GetStatus() != b.GetStatus() || a.GetStatusReason() != b.GetStatusReason() {
+		return false
+	}
 	for i := range a.GetEndpoints() {
 		left := a.GetEndpoints()[i]
 		right := b.GetEndpoints()[i]
@@ -223,4 +240,17 @@ func equalSnapshotsIgnoringRevision(a, b *controlv1.ServiceSnapshot) bool {
 		}
 	}
 	return true
+}
+
+func toProtoSnapshotStatus(status string) controlv1.SnapshotStatus {
+	switch strings.TrimSpace(status) {
+	case model.SnapshotStatusStale:
+		return controlv1.SnapshotStatus_SNAPSHOT_STATUS_STALE
+	case model.SnapshotStatusDegraded:
+		return controlv1.SnapshotStatus_SNAPSHOT_STATUS_DEGRADED
+	case model.SnapshotStatusCurrent, "":
+		return controlv1.SnapshotStatus_SNAPSHOT_STATUS_CURRENT
+	default:
+		return controlv1.SnapshotStatus_SNAPSHOT_STATUS_UNSPECIFIED
+	}
 }

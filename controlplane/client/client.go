@@ -54,6 +54,9 @@ func (s *State) DeleteSnapshot(service *controlv1.ServiceRef) {
 
 	if s.snapshots != nil {
 		delete(s.snapshots, serviceKey(service.GetNamespace(), service.GetEnv(), service.GetService()))
+		if strings.TrimSpace(service.GetEnv()) != "" {
+			delete(s.snapshots, serviceKey(service.GetNamespace(), "", service.GetService()))
+		}
 	}
 	if s.lastSnapshot != nil && s.lastSnapshot.GetService() != nil &&
 		serviceKey(s.lastSnapshot.GetService().GetNamespace(), s.lastSnapshot.GetService().GetEnv(), s.lastSnapshot.GetService().GetService()) ==
@@ -110,8 +113,10 @@ func (s *State) ResolveSnapshot(target model.ServiceRef) (model.ServiceSnapshot,
 			Port:      snapshot.GetService().GetPort(),
 		},
 		// endpoint 列表需要从 proto 模型转换为 dataplane 内部模型。
-		Endpoints: toModelEndpoints(snapshot.GetEndpoints()),
-		Revision:  snapshot.GetRevision(),
+		Endpoints:    toModelEndpoints(snapshot.GetEndpoints()),
+		Revision:     snapshot.GetRevision(),
+		Status:       toModelSnapshotStatus(snapshot.GetStatus()),
+		StatusReason: snapshot.GetStatusReason(),
 	}, true
 }
 
@@ -422,4 +427,17 @@ func toModelEndpoints(endpoints []*controlv1.Endpoint) []model.Endpoint {
 		})
 	}
 	return result
+}
+
+func toModelSnapshotStatus(status controlv1.SnapshotStatus) string {
+	switch status {
+	case controlv1.SnapshotStatus_SNAPSHOT_STATUS_STALE:
+		return model.SnapshotStatusStale
+	case controlv1.SnapshotStatus_SNAPSHOT_STATUS_DEGRADED:
+		return model.SnapshotStatusDegraded
+	case controlv1.SnapshotStatus_SNAPSHOT_STATUS_CURRENT, controlv1.SnapshotStatus_SNAPSHOT_STATUS_UNSPECIFIED:
+		return model.SnapshotStatusCurrent
+	default:
+		return model.SnapshotStatusCurrent
+	}
 }

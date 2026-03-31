@@ -486,3 +486,35 @@ func TestClientRemovesSnapshotAfterDeletePush(t *testing.T) {
 		t.Fatalf("unexpected run error: %v", err)
 	}
 }
+
+func TestStateResolveSnapshotPreservesStatus(t *testing.T) {
+	state := &State{}
+	state.SetSnapshot(&controlv1.ServiceSnapshot{
+		Service: &controlv1.ServiceRef{
+			Service:   "orders",
+			Namespace: "default",
+			Env:       "dev",
+		},
+		Endpoints: []*controlv1.Endpoint{
+			{Address: "10.0.0.60", Port: 19090, Weight: 1},
+		},
+		Revision:     "v-stale",
+		Status:       controlv1.SnapshotStatus_SNAPSHOT_STATUS_STALE,
+		StatusReason: "registry unavailable",
+	})
+
+	snapshotValue, ok := state.ResolveSnapshot(model.ServiceRef{
+		Service:   "orders",
+		Namespace: "default",
+		Env:       "dev",
+	})
+	if !ok {
+		t.Fatal("expected stale snapshot to resolve")
+	}
+	if got, want := snapshotValue.Status, model.SnapshotStatusStale; got != want {
+		t.Fatalf("unexpected resolved snapshot status: got=%s want=%s", got, want)
+	}
+	if got, want := snapshotValue.StatusReason, "registry unavailable"; got != want {
+		t.Fatalf("unexpected resolved snapshot reason: got=%s want=%s", got, want)
+	}
+}

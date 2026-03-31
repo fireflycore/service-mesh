@@ -145,7 +145,7 @@ func (p *Provider) Watch(ctx context.Context, target model.ServiceRef) (watchapi
 	return watchapi.RunPolling(ctx, durationFromMS(p.Config.QueryTimeoutMS), target, func(ctx context.Context) (model.ServiceSnapshot, bool, error) {
 		snapshot, err := p.Resolve(ctx, target)
 		if err != nil {
-			return model.ServiceSnapshot{}, false, nil
+			return model.ServiceSnapshot{}, false, err
 		}
 		return snapshot, true, nil
 	}), nil

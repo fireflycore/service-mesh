@@ -475,6 +475,22 @@ func (s *Server) recordPushExplain(summary deliveryExplainSummary) {
 	s.telemetry.RecordPushDecision(ctx, summary.responseKind, service, namespace, env, "matched_identity", "unknown", "fallback", int64(summary.identityFallback))
 }
 
+func (s *Server) ExplainRegisterReplay(identity *controlv1.DataplaneIdentity) ReplayExplainExport {
+	if s == nil || identity == nil {
+		return ReplayExplainExport{}
+	}
+	return newDeliveryCycle(s.store).ForIdentity(identity).Explain(identity).export()
+}
+
+func (s *Server) ExplainTargetPush(resp *controlv1.ConnectResponse, target model.ServiceRef, traceLimit int) DeliveryExplainExport {
+	if s == nil || resp == nil {
+		return DeliveryExplainExport{}
+	}
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	return newDeliveryCycle(s.store).ExplainTargetResponse(s.subscribers, resp, target).export(traceLimit)
+}
+
 func (s *Server) trackedTargetList() []model.ServiceRef {
 	s.mu.RLock()
 	defer s.mu.RUnlock()

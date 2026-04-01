@@ -37,6 +37,13 @@ type replayExplainSummary struct {
 	policyFallback   int
 }
 
+type ReplayExplainExport struct {
+	SnapshotExact    int
+	SnapshotFallback int
+	PolicyExact      int
+	PolicyFallback   int
+}
+
 type deliveryDecisionTrace struct {
 	dataplaneID       string
 	subscriptionMatch string
@@ -120,6 +127,15 @@ func (s deliveryExplainSummary) export(limit int) DeliveryExplainExport {
 		})
 	}
 	return exported
+}
+
+func (s replayExplainSummary) export() ReplayExplainExport {
+	return ReplayExplainExport{
+		SnapshotExact:    s.snapshotExact,
+		SnapshotFallback: s.snapshotFallback,
+		PolicyExact:      s.policyExact,
+		PolicyFallback:   s.policyFallback,
+	}
 }
 
 func responseKind(resp *controlv1.ConnectResponse) string {

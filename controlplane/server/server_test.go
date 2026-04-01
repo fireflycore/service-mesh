@@ -2177,3 +2177,88 @@ func TestResourceArbitratorExplain(t *testing.T) {
 		t.Fatalf("unexpected policy fallback count: got=%d want=%d", got, want)
 	}
 }
+
+func TestServerExplainRegisterReplay(t *testing.T) {
+	store := snapshot.NewStore()
+	store.PutModelSnapshot(model.ServiceSnapshot{
+		Service: model.ServiceRef{
+			Service:   "orders",
+			Namespace: "default",
+			Env:       "dev",
+		},
+	})
+	store.PutRoutePolicy(&controlv1.RoutePolicy{
+		Service: &controlv1.ServiceRef{
+			Service:   "orders",
+			Namespace: "default",
+		},
+	})
+	srv := New(store)
+
+	exported := srv.ExplainRegisterReplay(&controlv1.DataplaneIdentity{
+		DataplaneId: "dp-export",
+		Namespace:   "default",
+		Env:         "dev",
+	})
+
+	if got, want := exported.SnapshotExact, 1; got != want {
+		t.Fatalf("unexpected exported snapshot exact count: got=%d want=%d", got, want)
+	}
+	if got, want := exported.PolicyFallback, 1; got != want {
+		t.Fatalf("unexpected exported policy fallback count: got=%d want=%d", got, want)
+	}
+}
+
+func TestServerExplainTargetPush(t *testing.T) {
+	srv := New(snapshot.NewStore())
+	id1, _ := srv.addSubscriber()
+	id2, _ := srv.addSubscriber()
+	srv.updateSubscriberIdentity(id1, &controlv1.DataplaneIdentity{
+		DataplaneId: "dp-1",
+		Namespace:   "default",
+		Env:         "dev",
+	})
+	srv.updateSubscriberIdentity(id2, &controlv1.DataplaneIdentity{
+		DataplaneId: "dp-2",
+		Namespace:   "default",
+		Env:         "dev",
+	})
+	srv.updateSubscriberTargets(id1, []model.ServiceRef{{
+		Service:   "orders",
+		Namespace: "default",
+		Env:       "dev",
+	}})
+	srv.updateSubscriberTargets(id2, []model.ServiceRef{{
+		Service:   "payments",
+		Namespace: "default",
+		Env:       "dev",
+	}})
+
+	exported := srv.ExplainTargetPush(snapshotDeletedResponse(&controlv1.ServiceSnapshotDeleted{
+		Service: &controlv1.ServiceRef{
+			Service:   "orders",
+			Namespace: "default",
+			Env:       "dev",
+		},
+	}), model.ServiceRef{
+		Service:   "orders",
+		Namespace: "default",
+		Env:       "dev",
+	}, 1)
+
+	if got, want := exported.Delivered, 1; got != want {
+		t.Fatalf("unexpected exported delivered count: got=%d want=%d", got, want)
+	}
+	if got, want := exported.DeniedSubscription, 1; got != want {
+		t.Fatalf("unexpected exported denied subscription count: got=%d want=%d", got, want)
+	}
+	if got, want := exported.TraceTotal, 2; got != want {
+		t.Fatalf("unexpected exported trace total: got=%d want=%d", got, want)
+	}
+	if got, want := exported.TraceShown, 1; got != want {
+		t.Fatalf("unexpected exported trace shown: got=%d want=%d", got, want)
+	}
+	if got, want := exported.Trace[0].DataplaneID, "dp-1"; got != want {
+		t.Fatalf("unexpected exported trace dataplane: got=%s want=%s", got, want)
+	}
+}

@@ -130,6 +130,7 @@ service
   - target push 已开始输出 subscriber 级 decision trace 摘要，便于直接排查投递命中路径
   - decision trace 已按 subscriber 稳定排序，并输出 trace_total / trace_shown，避免排障结果漂移
   - decision trace 已开始具备正式结构化导出视图，便于后续做 trace/export 而不依赖字符串拼接
+  - controlplane server 已开始提供可调用的 replay / push explain 导出方法，便于后续接调试接口
   - consul / etcd / ext_authz / telemetry 初始化等外部交互已补齐默认超时保护，避免缺环境时长时间挂起
 
 ## 设计原则

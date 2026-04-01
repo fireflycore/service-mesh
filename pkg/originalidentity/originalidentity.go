@@ -15,7 +15,12 @@ const (
 	SourceMetadata = "metadata"
 
 	TrustAbsent     = "absent"
+	TrustLocal      = "local"
 	TrustUnverified = "unverified"
+
+	PrincipalNone         = "none"
+	PrincipalCaller       = "caller"
+	PrincipalOriginalUser = "original_user"
 )
 
 type Identity struct {
@@ -35,6 +40,12 @@ type Effective struct {
 	Caller Caller
 	Source string
 	Trust  string
+}
+
+type Principal struct {
+	Kind    string
+	Subject string
+	Trust   string
 }
 
 func (i Identity) Present() bool {
@@ -84,9 +95,12 @@ func Resolve(ctx *invokev1.InvocationContext) Effective {
 }
 
 func (e Effective) ContextExtensions() map[string]string {
+	principal := e.Principal()
 	extensions := map[string]string{
-		"original_user_source": e.Source,
-		"original_user_trust":  e.Trust,
+		"original_user_source":      e.Source,
+		"original_user_trust":       e.Trust,
+		"effective_principal_kind":  principal.Kind,
+		"effective_principal_trust": principal.Trust,
 	}
 	if strings.TrimSpace(e.Caller.Service) != "" {
 		extensions["caller_service"] = e.Caller.Service
@@ -98,10 +112,41 @@ func (e Effective) ContextExtensions() map[string]string {
 		extensions["caller_env"] = e.Caller.Env
 	}
 	if !e.Identity.Present() {
+		if strings.TrimSpace(principal.Subject) != "" {
+			extensions["effective_principal_subject"] = principal.Subject
+		}
 		return extensions
 	}
 	extensions["original_user_id"] = e.UserID
 	extensions["original_user_subject"] = e.Subject
 	extensions["original_user_issuer"] = e.Issuer
+	if strings.TrimSpace(principal.Subject) != "" {
+		extensions["effective_principal_subject"] = principal.Subject
+	}
 	return extensions
+}
+
+func (e Effective) Principal() Principal {
+	if e.Identity.Present() {
+		subject := strings.TrimSpace(e.Subject)
+		if subject == "" {
+			subject = strings.TrimSpace(e.UserID)
+		}
+		return Principal{
+			Kind:    PrincipalOriginalUser,
+			Subject: subject,
+			Trust:   e.Trust,
+		}
+	}
+	if strings.TrimSpace(e.Caller.Service) != "" {
+		return Principal{
+			Kind:    PrincipalCaller,
+			Subject: e.Caller.Service,
+			Trust:   TrustLocal,
+		}
+	}
+	return Principal{
+		Kind:  PrincipalNone,
+		Trust: TrustAbsent,
+	}
 }

@@ -48,11 +48,40 @@ func TestResolve(t *testing.T) {
 	if got, want := effective.Caller.Service, "gateway"; got != want {
 		t.Fatalf("unexpected caller service: got=%s want=%s", got, want)
 	}
+	principal := effective.Principal()
+	if got, want := principal.Kind, PrincipalOriginalUser; got != want {
+		t.Fatalf("unexpected principal kind: got=%s want=%s", got, want)
+	}
+	if got, want := principal.Subject, "alice@example.com"; got != want {
+		t.Fatalf("unexpected principal subject: got=%s want=%s", got, want)
+	}
 	extensions := effective.ContextExtensions()
 	if got, want := extensions["caller_service"], "gateway"; got != want {
 		t.Fatalf("unexpected caller_service extension: got=%s want=%s", got, want)
 	}
 	if got, want := extensions["original_user_trust"], TrustUnverified; got != want {
 		t.Fatalf("unexpected original_user_trust extension: got=%s want=%s", got, want)
+	}
+	if got, want := extensions["effective_principal_kind"], PrincipalOriginalUser; got != want {
+		t.Fatalf("unexpected effective_principal_kind extension: got=%s want=%s", got, want)
+	}
+}
+
+func TestResolveFallsBackToCallerPrincipal(t *testing.T) {
+	effective := Resolve(&invokev1.InvocationContext{
+		Caller: &invokev1.Caller{
+			Service: "orders",
+		},
+	})
+
+	principal := effective.Principal()
+	if got, want := principal.Kind, PrincipalCaller; got != want {
+		t.Fatalf("unexpected principal kind: got=%s want=%s", got, want)
+	}
+	if got, want := principal.Subject, "orders"; got != want {
+		t.Fatalf("unexpected principal subject: got=%s want=%s", got, want)
+	}
+	if got, want := principal.Trust, TrustLocal; got != want {
+		t.Fatalf("unexpected principal trust: got=%s want=%s", got, want)
 	}
 }

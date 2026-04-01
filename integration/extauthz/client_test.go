@@ -51,4 +51,10 @@ func TestBuildCheckRequestIncludesOriginalIdentityContext(t *testing.T) {
 	if got, want := extensions["caller_service"], "gateway"; got != want {
 		t.Fatalf("unexpected caller service: got=%s want=%s", got, want)
 	}
+	if got, want := extensions["effective_principal_kind"], originalidentity.PrincipalOriginalUser; got != want {
+		t.Fatalf("unexpected effective principal kind: got=%s want=%s", got, want)
+	}
+	if got, want := extensions["effective_principal_subject"], "alice@example.com"; got != want {
+		t.Fatalf("unexpected effective principal subject: got=%s want=%s", got, want)
+	}
 }

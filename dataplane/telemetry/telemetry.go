@@ -79,6 +79,7 @@ func (e *Emitter) StartInvoke(ctx context.Context, req *invokev1.UnaryInvokeRequ
 		attribute.String("rpc.codec", req.GetCodec()),
 	}
 	original := originalidentity.Resolve(req.GetContext())
+	principal := original.Principal()
 	if original.Present() {
 		attrs = append(attrs,
 			attribute.Bool("mesh.original_user.present", true),
@@ -87,6 +88,13 @@ func (e *Emitter) StartInvoke(ctx context.Context, req *invokev1.UnaryInvokeRequ
 			attribute.String("mesh.original_user.subject", original.Subject),
 			attribute.String("mesh.original_user.issuer", original.Issuer),
 		)
+	}
+	attrs = append(attrs,
+		attribute.String("mesh.effective_principal.kind", principal.Kind),
+		attribute.String("mesh.effective_principal.trust", principal.Trust),
+	)
+	if principal.Subject != "" {
+		attrs = append(attrs, attribute.String("mesh.effective_principal.subject", principal.Subject))
 	}
 
 	return e.tracer.Start(ctx, "service-mesh.invoke", trace.WithAttributes(attrs...))

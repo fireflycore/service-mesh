@@ -29,6 +29,7 @@
   - ext_authz context_extensions 已开始消费 original user 上下文
   - invoke span 已开始带 original user presence / subject / issuer
   - original end-user identity 当前已显式标记为 `metadata / unverified`
+  - effective principal 已开始显式收敛：优先 original user，其次 caller service
   - selector / arbitration / delivery batch 已基本立住
 
 ## 3. 当前仍存在的问题
@@ -45,6 +46,7 @@
   - 当前还是 metadata 级最小透传，尚未形成正式 proto 字段
   - caller identity 与 original end-user identity 已开始显式并存，但合并契约仍未正式固化到 proto
   - trust boundary / signature / verification 规则仍未进入实现
+  - gateway 注入边界还未在代码层显式约束
 - 文档
   - 当前设计文档已基本与代码方向对齐
   - 但仍要以仓库现状文档为准，而不是继续把“未来建议结构”当成“当前已有结构”

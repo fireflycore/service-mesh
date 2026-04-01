@@ -1,0 +1,28 @@
+listen: 127.0.0.1:19080
+
+snapshots:
+  - service:
+      service: orders
+      namespace: default
+      env: dev
+    revision: demo-v1
+    status: current
+    endpoints:
+      - address: 127.0.0.1
+        port: 50051
+        weight: 1
+
+route_policies:
+  - service:
+      service: orders
+      namespace: default
+      env: dev
+    timeout_ms: 1500
+    retry:
+      max_attempts: 2
+      per_try_timeout_ms: 500
+
+tracked_targets:
+  - service: orders
+    namespace: default
+    env: dev

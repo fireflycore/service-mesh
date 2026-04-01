@@ -32,6 +32,8 @@
   - effective principal 已开始显式收敛：优先 original user，其次 caller service
   - issuer-only original metadata 不会单独升级为 effective principal
   - trusted injector 已有最小边界：仅 sidecar 显式配置后才会把 original identity trust 升为 `local`
+  - 已补最小可运行 MVP：静态 controlplane 二进制 + sidecar 示例配置 + quickstart 文档
+  - MVP 现在也已补 demo upstream 与 demo client，可直接验证端到端调用
   - selector / arbitration / delivery batch 已基本立住
 
 ## 3. 当前仍存在的问题

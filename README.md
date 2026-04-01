@@ -139,6 +139,8 @@ service
   - effective principal 也已开始显式收敛：优先 original user，其次 caller service
   - issuer-only original metadata 不会单独升级为 effective principal，避免仅凭来源说明字段切换主体
   - trusted injector 已有最小边界：仅 sidecar 显式配置后才会把 original identity trust 升为 `local`
+  - 仓库现在已补一版最小可运行 MVP：可直接启动静态 controlplane 与示例 sidecar，见 [MVP_QUICKSTART.md](file:///d:/project/firefly/service-mesh/MVP_QUICKSTART.md)
+  - MVP 现在也已补 demo upstream 与 demo client，可直接做一次真实端到端调用
   - consul / etcd / ext_authz / telemetry 初始化等外部交互已补齐默认超时保护，避免缺环境时长时间挂起
 
 ## 设计原则

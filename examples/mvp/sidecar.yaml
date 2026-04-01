@@ -1,0 +1,25 @@
+mode: sidecar
+
+runtime:
+  sidecar:
+    address: 127.0.0.1:19091
+    target_mode: upstream_only
+    service_name: gateway
+    instance_id: gateway-1
+    namespace: default
+    env: dev
+    trusted_original_identity_injector: true
+
+source:
+  kind: consul
+  consul:
+    address: 127.0.0.1:8500
+
+authz:
+  target: 127.0.0.1:9001
+  fail_open: true
+
+controlplane:
+  enabled: true
+  target: 127.0.0.1:19080
+  allow_source_fallback: false

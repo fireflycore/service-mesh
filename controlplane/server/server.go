@@ -4,6 +4,7 @@ import (
 	"context"
 	"io"
 	"log/slog"
+	"sort"
 	"strings"
 	"sync"
 	"time"
@@ -513,6 +514,57 @@ func (s *Server) ExplainTargetPush(resp *controlv1.ConnectResponse, target model
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 	return newDeliveryCycle(s.store).ExplainTargetResponse(s.subscribers, resp, target).export(traceLimit)
+}
+
+func (s *Server) ExportDebugState() ServerDebugStateExport {
+	if s == nil {
+		return ServerDebugStateExport{}
+	}
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+
+	exported := ServerDebugStateExport{
+		SubscriberCount:    len(s.subscribers),
+		TrackedTargetCount: len(s.trackedTargets),
+		Subscribers:        make([]SubscriberDebugExport, 0, len(s.subscribers)),
+		TrackedTargets:     make([]model.ServiceRef, 0, len(s.trackedTargets)),
+	}
+	for _, target := range s.trackedTargets {
+		exported.TrackedTargets = append(exported.TrackedTargets, target)
+	}
+	sortServiceRefs(exported.TrackedTargets)
+
+	ids := make([]uint64, 0, len(s.subscribers))
+	for id := range s.subscribers {
+		ids = append(ids, id)
+	}
+	sort.Slice(ids, func(i, j int) bool {
+		return ids[i] < ids[j]
+	})
+	for _, id := range ids {
+		subscriber := s.subscribers[id]
+		if subscriber == nil {
+			continue
+		}
+		item := SubscriberDebugExport{
+			SubscriberID: id,
+			Targets:      make([]model.ServiceRef, 0, len(subscriber.targets)),
+		}
+		if subscriber.identity != nil {
+			item.Identity = DataplaneIdentityExport{
+				DataplaneID: subscriber.identity.GetDataplaneId(),
+				NodeID:      subscriber.identity.GetNodeId(),
+				Namespace:   subscriber.identity.GetNamespace(),
+				Env:         subscriber.identity.GetEnv(),
+			}
+		}
+		for _, target := range subscriber.targets {
+			item.Targets = append(item.Targets, target)
+		}
+		sortServiceRefs(item.Targets)
+		exported.Subscribers = append(exported.Subscribers, item)
+	}
+	return exported
 }
 
 func (s *Server) trackedTargetList() []model.ServiceRef {

@@ -2310,3 +2310,64 @@ func TestServerExplainSubscribeReplay(t *testing.T) {
 		t.Fatalf("unexpected subscribe route policy batch count: got=%d want=%d", got, want)
 	}
 }
+
+func TestServerExportDebugState(t *testing.T) {
+	srv := New(snapshot.NewStore())
+	srv.TrackTarget(model.ServiceRef{
+		Service:   "payments",
+		Namespace: "default",
+		Env:       "dev",
+		Port:      8081,
+	})
+	srv.TrackTarget(model.ServiceRef{
+		Service:   "orders",
+		Namespace: "default",
+		Env:       "dev",
+		Port:      8080,
+	})
+
+	id1, _ := srv.addSubscriber()
+	id2, _ := srv.addSubscriber()
+	srv.updateSubscriberIdentity(id1, &controlv1.DataplaneIdentity{
+		DataplaneId: "dp-1",
+		NodeId:      "node-1",
+		Namespace:   "default",
+		Env:         "dev",
+	})
+	srv.updateSubscriberIdentity(id2, &controlv1.DataplaneIdentity{
+		DataplaneId: "dp-2",
+		NodeId:      "node-2",
+		Namespace:   "default",
+		Env:         "dev",
+	})
+	srv.updateSubscriberTargets(id1, []model.ServiceRef{
+		{Service: "payments", Namespace: "default", Env: "dev", Port: 8081},
+		{Service: "orders", Namespace: "default", Env: "dev", Port: 8080},
+	})
+	srv.updateSubscriberTargets(id2, []model.ServiceRef{
+		{Service: "orders", Namespace: "default", Env: "dev", Port: 8080},
+	})
+
+	exported := srv.ExportDebugState()
+	if got, want := exported.SubscriberCount, 2; got != want {
+		t.Fatalf("unexpected subscriber count: got=%d want=%d", got, want)
+	}
+	if got, want := exported.TrackedTargetCount, 2; got != want {
+		t.Fatalf("unexpected tracked target count: got=%d want=%d", got, want)
+	}
+	if got, want := len(exported.Subscribers), 2; got != want {
+		t.Fatalf("unexpected subscribers length: got=%d want=%d", got, want)
+	}
+	if got, want := exported.Subscribers[0].SubscriberID, id1; got != want {
+		t.Fatalf("unexpected first subscriber id: got=%d want=%d", got, want)
+	}
+	if got, want := exported.Subscribers[0].Identity.DataplaneID, "dp-1"; got != want {
+		t.Fatalf("unexpected first subscriber dataplane id: got=%s want=%s", got, want)
+	}
+	if got, want := exported.Subscribers[0].Targets[0].Service, "orders"; got != want {
+		t.Fatalf("unexpected first subscriber first target: got=%s want=%s", got, want)
+	}
+	if got, want := exported.TrackedTargets[0].Service, "orders"; got != want {
+		t.Fatalf("unexpected first tracked target: got=%s want=%s", got, want)
+	}
+}

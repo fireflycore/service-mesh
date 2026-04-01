@@ -6,14 +6,14 @@ import (
 	"testing"
 )
 
-func testdataPath(name string) string {
+func examplePath(name string) string {
 	_, file, _, _ := runtime.Caller(0)
-	return filepath.Join(filepath.Dir(file), "..", "..", "testdata", name)
+	return filepath.Join(filepath.Dir(file), "..", "..", "examples", "mvp", name)
 }
 
 func TestLoadReadsFlatAgentAddress(t *testing.T) {
 	cfg, err := Load(LoadOptions{
-		Path: testdataPath("agent.yaml"),
+		Path: examplePath("agent.yaml"),
 	})
 	if err != nil {
 		t.Fatalf("load agent config failed: %v", err)
@@ -26,7 +26,7 @@ func TestLoadReadsFlatAgentAddress(t *testing.T) {
 
 func TestLoadReadsFlatSidecarAddress(t *testing.T) {
 	cfg, err := Load(LoadOptions{
-		Path: testdataPath("sidecar.yaml"),
+		Path: examplePath("sidecar-etcd.yaml"),
 	})
 	if err != nil {
 		t.Fatalf("load sidecar config failed: %v", err)

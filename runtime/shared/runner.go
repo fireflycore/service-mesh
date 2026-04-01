@@ -12,15 +12,15 @@ import (
 
 	controlv1 "github.com/fireflycore/service-mesh/.gen/proto/acme/control/v1"
 	invokev1 "github.com/fireflycore/service-mesh/.gen/proto/acme/invoke/v1"
-	controlclient "github.com/fireflycore/service-mesh/controlplane/client"
-	"github.com/fireflycore/service-mesh/dataplane/authz"
-	"github.com/fireflycore/service-mesh/dataplane/balancer"
-	"github.com/fireflycore/service-mesh/dataplane/invoke"
-	"github.com/fireflycore/service-mesh/dataplane/resolver"
-	meshtelemetry "github.com/fireflycore/service-mesh/dataplane/telemetry"
-	"github.com/fireflycore/service-mesh/dataplane/transport"
 	otelintegration "github.com/fireflycore/service-mesh/integration/otel"
 	"github.com/fireflycore/service-mesh/pkg/config"
+	controlclient "github.com/fireflycore/service-mesh/plane/control/client"
+	"github.com/fireflycore/service-mesh/plane/data/authz"
+	"github.com/fireflycore/service-mesh/plane/data/balancer"
+	"github.com/fireflycore/service-mesh/plane/data/invoke"
+	"github.com/fireflycore/service-mesh/plane/data/resolver"
+	meshtelemetry "github.com/fireflycore/service-mesh/plane/data/telemetry"
+	"github.com/fireflycore/service-mesh/plane/data/transport"
 	"github.com/fireflycore/service-mesh/source"
 	"go.opentelemetry.io/contrib/instrumentation/google.golang.org/grpc/otelgrpc"
 	"go.opentelemetry.io/otel/attribute"
@@ -44,7 +44,7 @@ type Params struct {
 	Namespace string
 	Env       string
 	// TargetMode 只在 sidecar 模式下有意义，用于控制是否允许同名目标。
-	TargetMode string
+	TargetMode                      string
 	TrustedOriginalIdentityInjector bool
 	// LogAttributes 允许不同模式追加自己的结构化日志字段。
 	LogAttributes []slog.Attr
@@ -113,11 +113,11 @@ func New(cfg *config.Config, params Params) (*Runner, error) {
 		// 这样未显式填写 caller/target 维度时也能得到稳定默认值。
 		invokeOptions.LocalIdentity = &invoke.LocalIdentity{
 			// 当前阶段 AppID 与 ServiceName 保持一致，后续如有独立 app_id 再拆分。
-			AppID:      params.ServiceName,
-			Service:    params.ServiceName,
-			Namespace:  strings.TrimSpace(params.Namespace),
-			Env:        strings.TrimSpace(params.Env),
-			TargetMode: strings.TrimSpace(params.TargetMode),
+			AppID:                           params.ServiceName,
+			Service:                         params.ServiceName,
+			Namespace:                       strings.TrimSpace(params.Namespace),
+			Env:                             strings.TrimSpace(params.Env),
+			TargetMode:                      strings.TrimSpace(params.TargetMode),
 			TrustedOriginalIdentityInjector: params.TrustedOriginalIdentityInjector,
 		}
 	}

@@ -18,11 +18,11 @@ func New(cfg *config.Config) (*Runner, error) {
 		// sidecar 本地入口通常是容器或进程附近的 TCP 地址。
 		Address: cfg.Runtime.Sidecar.Address,
 		// 下面四个字段共同构成 sidecar 的本地服务身份。
-		ServiceName: cfg.Runtime.Sidecar.ServiceName,
-		InstanceID:  cfg.Runtime.Sidecar.InstanceID,
-		Namespace:   cfg.Runtime.Sidecar.Namespace,
-		Env:         cfg.Runtime.Sidecar.Env,
-		TargetMode:  cfg.Runtime.Sidecar.TargetMode,
+		ServiceName:                     cfg.Runtime.Sidecar.ServiceName,
+		InstanceID:                      cfg.Runtime.Sidecar.InstanceID,
+		Namespace:                       cfg.Runtime.Sidecar.Namespace,
+		Env:                             cfg.Runtime.Sidecar.Env,
+		TargetMode:                      cfg.Runtime.Sidecar.TargetMode,
 		TrustedOriginalIdentityInjector: cfg.Runtime.Sidecar.TrustedOriginalIdentityInjector,
 		LogAttributes: []slog.Attr{
 			slog.String("service_name", cfg.Runtime.Sidecar.ServiceName),

@@ -30,6 +30,14 @@ type batchExplainSummary struct {
 	unknown                int
 }
 
+type BatchExplainExport struct {
+	StreamResponses        int
+	ServiceSnapshots       int
+	ServiceSnapshotDeleted int
+	RoutePolicies          int
+	Unknown                int
+}
+
 type replayExplainSummary struct {
 	snapshotExact    int
 	snapshotFallback int
@@ -42,6 +50,18 @@ type ReplayExplainExport struct {
 	SnapshotFallback int
 	PolicyExact      int
 	PolicyFallback   int
+}
+
+type RegisterReplayExplainExport struct {
+	Replay ReplayExplainExport
+	Batch  BatchExplainExport
+}
+
+type SubscribeReplayExplainExport struct {
+	TargetCount          int
+	ChangedSnapshotCount int
+	Replay               ReplayExplainExport
+	Batch                BatchExplainExport
 }
 
 type deliveryDecisionTrace struct {
@@ -135,6 +155,16 @@ func (s replayExplainSummary) export() ReplayExplainExport {
 		SnapshotFallback: s.snapshotFallback,
 		PolicyExact:      s.policyExact,
 		PolicyFallback:   s.policyFallback,
+	}
+}
+
+func (s batchExplainSummary) export() BatchExplainExport {
+	return BatchExplainExport{
+		StreamResponses:        s.streamResponses,
+		ServiceSnapshots:       s.serviceSnapshots,
+		ServiceSnapshotDeleted: s.serviceSnapshotDeleted,
+		RoutePolicies:          s.routePolicies,
+		Unknown:                s.unknown,
 	}
 }
 

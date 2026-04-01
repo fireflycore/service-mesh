@@ -2201,11 +2201,14 @@ func TestServerExplainRegisterReplay(t *testing.T) {
 		Env:         "dev",
 	})
 
-	if got, want := exported.SnapshotExact, 1; got != want {
+	if got, want := exported.Replay.SnapshotExact, 1; got != want {
 		t.Fatalf("unexpected exported snapshot exact count: got=%d want=%d", got, want)
 	}
-	if got, want := exported.PolicyFallback, 1; got != want {
+	if got, want := exported.Replay.PolicyFallback, 1; got != want {
 		t.Fatalf("unexpected exported policy fallback count: got=%d want=%d", got, want)
+	}
+	if got, want := exported.Batch.RoutePolicies, 1; got != want {
+		t.Fatalf("unexpected exported batch route policy count: got=%d want=%d", got, want)
 	}
 }
 
@@ -2260,5 +2263,50 @@ func TestServerExplainTargetPush(t *testing.T) {
 	}
 	if got, want := exported.Trace[0].DataplaneID, "dp-1"; got != want {
 		t.Fatalf("unexpected exported trace dataplane: got=%s want=%s", got, want)
+	}
+}
+
+func TestServerExplainSubscribeReplay(t *testing.T) {
+	store := snapshot.NewStore()
+	store.PutModelSnapshot(model.ServiceSnapshot{
+		Service: model.ServiceRef{
+			Service:   "orders",
+			Namespace: "default",
+			Env:       "dev",
+		},
+	})
+	store.PutRoutePolicy(&controlv1.RoutePolicy{
+		Service: &controlv1.ServiceRef{
+			Service:   "orders",
+			Namespace: "default",
+		},
+	})
+	srv := New(store)
+	targets := []model.ServiceRef{{
+		Service:   "orders",
+		Namespace: "default",
+		Env:       "dev",
+	}}
+
+	exported := srv.ExplainSubscribeReplay(&controlv1.DataplaneIdentity{
+		DataplaneId: "dp-subscribe",
+		Namespace:   "default",
+		Env:         "dev",
+	}, targets, nil)
+
+	if got, want := exported.TargetCount, 1; got != want {
+		t.Fatalf("unexpected subscribe target count: got=%d want=%d", got, want)
+	}
+	if got, want := exported.Replay.SnapshotExact, 1; got != want {
+		t.Fatalf("unexpected subscribe snapshot exact count: got=%d want=%d", got, want)
+	}
+	if got, want := exported.Replay.PolicyFallback, 1; got != want {
+		t.Fatalf("unexpected subscribe policy fallback count: got=%d want=%d", got, want)
+	}
+	if got, want := exported.Batch.ServiceSnapshots, 1; got != want {
+		t.Fatalf("unexpected subscribe snapshot batch count: got=%d want=%d", got, want)
+	}
+	if got, want := exported.Batch.RoutePolicies, 1; got != want {
+		t.Fatalf("unexpected subscribe route policy batch count: got=%d want=%d", got, want)
 	}
 }

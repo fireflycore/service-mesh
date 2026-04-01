@@ -475,11 +475,35 @@ func (s *Server) recordPushExplain(summary deliveryExplainSummary) {
 	s.telemetry.RecordPushDecision(ctx, summary.responseKind, service, namespace, env, "matched_identity", "unknown", "fallback", int64(summary.identityFallback))
 }
 
-func (s *Server) ExplainRegisterReplay(identity *controlv1.DataplaneIdentity) ReplayExplainExport {
+func (s *Server) ExplainRegisterReplay(identity *controlv1.DataplaneIdentity) RegisterReplayExplainExport {
 	if s == nil || identity == nil {
-		return ReplayExplainExport{}
+		return RegisterReplayExplainExport{}
 	}
-	return newDeliveryCycle(s.store).ForIdentity(identity).Explain(identity).export()
+	cycle := newDeliveryCycle(s.store)
+	return RegisterReplayExplainExport{
+		Replay: cycle.ForIdentity(identity).Explain(identity).export(),
+		Batch:  cycle.RegisterBatch(identity).Explain().export(),
+	}
+}
+
+func (s *Server) ExplainSubscribeReplay(identity *controlv1.DataplaneIdentity, targets []model.ServiceRef, changed []*controlv1.ServiceSnapshot) SubscribeReplayExplainExport {
+	if s == nil || identity == nil || len(targets) == 0 {
+		return SubscribeReplayExplainExport{}
+	}
+	subscriber := &subscriber{
+		identity: identity,
+		targets:  make(map[string]model.ServiceRef, len(targets)),
+	}
+	for _, target := range targets {
+		subscriber.targets[targetKey(target)] = target
+	}
+	cycle := newDeliveryCycle(s.store)
+	return SubscribeReplayExplainExport{
+		TargetCount:          len(targets),
+		ChangedSnapshotCount: len(changed),
+		Replay:               cycle.ForSubscriber(subscriber).Explain(identity).export(),
+		Batch:                cycle.SubscribeBatch(subscriber, targets, changed).Explain().export(),
+	}
 }
 
 func (s *Server) ExplainTargetPush(resp *controlv1.ConnectResponse, target model.ServiceRef, traceLimit int) DeliveryExplainExport {

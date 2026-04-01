@@ -78,6 +78,7 @@
 - decision trace 已按 subscriber 稳定排序，并输出 trace_total / trace_shown，避免排障结果漂移
 - decision trace 已开始具备正式结构化导出视图，便于后续做 trace/export 而不依赖字符串拼接
 - controlplane server 已开始提供可调用的 replay / push explain 导出方法，便于后续接调试接口
+- controlplane server 现在也已补齐 subscribe replay explain 导出，register / subscribe / push 三类视图开始对齐
 
 ### 第三优先级：M18 最小观测补强
 

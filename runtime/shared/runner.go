@@ -45,6 +45,7 @@ type Params struct {
 	Env       string
 	// TargetMode 只在 sidecar 模式下有意义，用于控制是否允许同名目标。
 	TargetMode string
+	TrustedOriginalIdentityInjector bool
 	// LogAttributes 允许不同模式追加自己的结构化日志字段。
 	LogAttributes []slog.Attr
 }
@@ -117,6 +118,7 @@ func New(cfg *config.Config, params Params) (*Runner, error) {
 			Namespace:  strings.TrimSpace(params.Namespace),
 			Env:        strings.TrimSpace(params.Env),
 			TargetMode: strings.TrimSpace(params.TargetMode),
+			TrustedOriginalIdentityInjector: params.TrustedOriginalIdentityInjector,
 		}
 	}
 

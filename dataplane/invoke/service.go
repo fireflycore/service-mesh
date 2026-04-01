@@ -15,6 +15,7 @@ import (
 	"github.com/fireflycore/service-mesh/dataplane/transport"
 	"github.com/fireflycore/service-mesh/pkg/config"
 	"github.com/fireflycore/service-mesh/pkg/model"
+	"github.com/fireflycore/service-mesh/pkg/originalidentity"
 	otelcodes "go.opentelemetry.io/otel/codes"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
@@ -41,6 +42,7 @@ type LocalIdentity struct {
 	Env       string
 	// TargetMode 控制是否允许目标再次指向本地绑定服务身份。
 	TargetMode string
+	TrustedOriginalIdentityInjector bool
 }
 
 // Options 定义 Invoke 服务在第六版引入的可靠性策略。
@@ -441,8 +443,36 @@ func applyLocalIdentity(req *invokev1.UnaryInvokeRequest, identity *LocalIdentit
 		// 当前阶段还没有完整 trace 上下文透传时，先生成一个最小 trace_id。
 		req.Context.TraceId = defaultTraceID(identity)
 	}
+	req.Context.Metadata = rewriteOriginalIdentityTrust(req.Context.Metadata, identity)
 
 	return nil
+}
+
+func rewriteOriginalIdentityTrust(entries []*invokev1.MetadataEntry, identity *LocalIdentity) []*invokev1.MetadataEntry {
+	rewritten := make([]*invokev1.MetadataEntry, 0, len(entries)+1)
+	var hasOriginalIdentity bool
+	for _, entry := range entries {
+		if entry == nil {
+			continue
+		}
+		if strings.EqualFold(strings.TrimSpace(entry.GetKey()), originalidentity.MetadataTrust) {
+			continue
+		}
+		if !hasOriginalIdentity {
+			key := strings.ToLower(strings.TrimSpace(entry.GetKey()))
+			if key == originalidentity.MetadataUserID || key == originalidentity.MetadataSubject || key == originalidentity.MetadataIssuer {
+				hasOriginalIdentity = true
+			}
+		}
+		rewritten = append(rewritten, entry)
+	}
+	if identity != nil && identity.TrustedOriginalIdentityInjector && hasOriginalIdentity {
+		rewritten = append(rewritten, &invokev1.MetadataEntry{
+			Key:    originalidentity.MetadataTrust,
+			Values: []string{originalidentity.TrustLocal},
+		})
+	}
+	return rewritten
 }
 
 // validateSidecarTarget 拒绝把本地 sidecar 当成“调自己”的上游代理使用。

@@ -10,6 +10,7 @@ const (
 	MetadataUserID  = "x-service-mesh-original-user-id"
 	MetadataSubject = "x-service-mesh-original-user-subject"
 	MetadataIssuer  = "x-service-mesh-original-user-issuer"
+	MetadataTrust   = "x-service-mesh-original-user-trust"
 
 	SourceNone     = "none"
 	SourceMetadata = "metadata"
@@ -93,9 +94,27 @@ func Resolve(ctx *invokev1.InvocationContext) Effective {
 	effective.Identity = Extract(ctx.GetMetadata())
 	if effective.Identity.Present() {
 		effective.Source = SourceMetadata
-		effective.Trust = TrustUnverified
+		effective.Trust = ExtractTrust(ctx.GetMetadata())
 	}
 	return effective
+}
+
+func ExtractTrust(entries []*invokev1.MetadataEntry) string {
+	for _, entry := range entries {
+		if entry == nil || len(entry.GetValues()) == 0 {
+			continue
+		}
+		if strings.ToLower(strings.TrimSpace(entry.GetKey())) != MetadataTrust {
+			continue
+		}
+		switch strings.ToLower(strings.TrimSpace(entry.GetValues()[0])) {
+		case TrustLocal:
+			return TrustLocal
+		case TrustUnverified:
+			return TrustUnverified
+		}
+	}
+	return TrustUnverified
 }
 
 func (e Effective) ContextExtensions() map[string]string {

@@ -171,6 +171,88 @@ func TestServiceUnaryInvokePreservesOriginalIdentityMetadata(t *testing.T) {
 	}
 }
 
+func TestServiceUnaryInvokeMarksOriginalIdentityLocalForTrustedInjector(t *testing.T) {
+	provider := memory.New(map[string]model.ServiceSnapshot{
+		"default/dev/orders": {
+			Service:   model.ServiceRef{Service: "orders", Namespace: "default", Env: "dev"},
+			Endpoints: []model.Endpoint{{Address: "127.0.0.1", Port: 8080}},
+		},
+	})
+	transport := &captureTransport{}
+	svc := NewService(
+		authz.NewAllowAll(),
+		resolver.New(provider, balancer.NewRoundRobin()),
+		transport,
+		Options{
+			LocalIdentity: &LocalIdentity{
+				AppID:                           "gateway",
+				Service:                         "gateway",
+				Namespace:                       "default",
+				Env:                             "dev",
+				TrustedOriginalIdentityInjector: true,
+			},
+		},
+	)
+
+	_, err := svc.UnaryInvoke(context.Background(), &invokev1.UnaryInvokeRequest{
+		Target: &invokev1.ServiceRef{Service: "orders"},
+		Method: "/acme.orders.v1.OrderService/GetOrder",
+		Context: &invokev1.InvocationContext{
+			Metadata: []*invokev1.MetadataEntry{
+				{Key: originalidentity.MetadataSubject, Values: []string{"alice@example.com"}},
+			},
+		},
+	})
+	if err != nil {
+		t.Fatalf("invoke failed: %v", err)
+	}
+	effective := originalidentity.Resolve(transport.req.GetContext())
+	if got, want := effective.Trust, originalidentity.TrustLocal; got != want {
+		t.Fatalf("unexpected trust: got=%s want=%s", got, want)
+	}
+}
+
+func TestServiceUnaryInvokeDropsSpoofedOriginalIdentityTrustForUntrustedInjector(t *testing.T) {
+	provider := memory.New(map[string]model.ServiceSnapshot{
+		"default/dev/orders": {
+			Service:   model.ServiceRef{Service: "orders", Namespace: "default", Env: "dev"},
+			Endpoints: []model.Endpoint{{Address: "127.0.0.1", Port: 8080}},
+		},
+	})
+	transport := &captureTransport{}
+	svc := NewService(
+		authz.NewAllowAll(),
+		resolver.New(provider, balancer.NewRoundRobin()),
+		transport,
+		Options{
+			LocalIdentity: &LocalIdentity{
+				AppID:     "gateway",
+				Service:   "gateway",
+				Namespace: "default",
+				Env:       "dev",
+			},
+		},
+	)
+
+	_, err := svc.UnaryInvoke(context.Background(), &invokev1.UnaryInvokeRequest{
+		Target: &invokev1.ServiceRef{Service: "orders"},
+		Method: "/acme.orders.v1.OrderService/GetOrder",
+		Context: &invokev1.InvocationContext{
+			Metadata: []*invokev1.MetadataEntry{
+				{Key: originalidentity.MetadataSubject, Values: []string{"alice@example.com"}},
+				{Key: originalidentity.MetadataTrust, Values: []string{originalidentity.TrustLocal}},
+			},
+		},
+	})
+	if err != nil {
+		t.Fatalf("invoke failed: %v", err)
+	}
+	effective := originalidentity.Resolve(transport.req.GetContext())
+	if got, want := effective.Trust, originalidentity.TrustUnverified; got != want {
+		t.Fatalf("unexpected trust: got=%s want=%s", got, want)
+	}
+}
+
 type flakyTransport struct {
 	mu       sync.Mutex
 	attempts int

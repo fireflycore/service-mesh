@@ -138,6 +138,7 @@ service
   - original end-user identity 当前已显式标记为 `metadata / unverified`，并与 caller identity 分离保留
   - effective principal 也已开始显式收敛：优先 original user，其次 caller service
   - issuer-only original metadata 不会单独升级为 effective principal，避免仅凭来源说明字段切换主体
+  - trusted injector 已有最小边界：仅 sidecar 显式配置后才会把 original identity trust 升为 `local`
   - consul / etcd / ext_authz / telemetry 初始化等外部交互已补齐默认超时保护，避免缺环境时长时间挂起
 
 ## 设计原则

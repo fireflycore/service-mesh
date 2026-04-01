@@ -23,6 +23,7 @@ func New(cfg *config.Config) (*Runner, error) {
 		Namespace:   cfg.Runtime.Sidecar.Namespace,
 		Env:         cfg.Runtime.Sidecar.Env,
 		TargetMode:  cfg.Runtime.Sidecar.TargetMode,
+		TrustedOriginalIdentityInjector: cfg.Runtime.Sidecar.TrustedOriginalIdentityInjector,
 		LogAttributes: []slog.Attr{
 			slog.String("service_name", cfg.Runtime.Sidecar.ServiceName),
 			slog.String("instance_id", cfg.Runtime.Sidecar.InstanceID),

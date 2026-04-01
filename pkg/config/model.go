@@ -63,7 +63,8 @@ type SidecarRuntimeConfig struct {
 	// Namespace 用于和目录/控制面下发的服务命名空间对齐。
 	Namespace string `yaml:"namespace"`
 	// Env 用于和目录/控制面下发的环境维度对齐。
-	Env string `yaml:"env"`
+	Env                             string `yaml:"env"`
+	TrustedOriginalIdentityInjector bool   `yaml:"trusted_original_identity_injector"`
 }
 
 // SourceConfig 描述目录来源选择。

@@ -11,8 +11,7 @@ import (
 
 	"github.com/fireflycore/service-mesh/pkg/config"
 	"github.com/fireflycore/service-mesh/pkg/model"
-	"github.com/fireflycore/service-mesh/source/sourceerr"
-	"github.com/fireflycore/service-mesh/source/watchapi"
+	"github.com/fireflycore/service-mesh/source/watch"
 	mvccpb "go.etcd.io/etcd/api/v3/mvccpb"
 	clientv3 "go.etcd.io/etcd/client/v3"
 )
@@ -136,14 +135,14 @@ func (p *Provider) Resolve(ctx context.Context, target model.ServiceRef) (model.
 	}
 
 	if len(snapshot.Endpoints) == 0 {
-		return model.ServiceSnapshot{}, fmt.Errorf("%w: etcd service=%s", sourceerr.ErrNoHealthyEndpoints, service)
+		return model.ServiceSnapshot{}, fmt.Errorf("%w: etcd service=%s", watch.ErrNoHealthyEndpoints, service)
 	}
 
 	return snapshot, nil
 }
 
-func (p *Provider) Watch(ctx context.Context, target model.ServiceRef) (watchapi.Stream, error) {
-	return watchapi.RunPollingWithOptions(ctx, durationFromMS(p.Config.QueryTimeoutMS), target, watchapi.PollingOptions{
+func (p *Provider) Watch(ctx context.Context, target model.ServiceRef) (watch.Stream, error) {
+	return watch.RunPollingWithOptions(ctx, durationFromMS(p.Config.QueryTimeoutMS), target, watch.PollingOptions{
 		DegradeAfterConsecutiveErrors: int(p.Config.WatchDegradeAfterErrors),
 	}, func(ctx context.Context) (model.ServiceSnapshot, bool, error) {
 		snapshot, err := p.Resolve(ctx, target)

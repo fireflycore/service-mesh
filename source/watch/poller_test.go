@@ -1,4 +1,4 @@
-package watchapi
+package watch
 
 import (
 	"context"
@@ -8,7 +8,6 @@ import (
 	"time"
 
 	"github.com/fireflycore/service-mesh/pkg/model"
-	"github.com/fireflycore/service-mesh/source/sourceerr"
 )
 
 func TestRunPollingEmitsUpsertAndDelete(t *testing.T) {
@@ -208,7 +207,7 @@ func TestRunPollingFormatsTimeoutReason(t *testing.T) {
 }
 
 func TestRunPollingFormatsEmptyReason(t *testing.T) {
-	err := fmt.Errorf("%w: etcd service=orders", sourceerr.ErrNoHealthyEndpoints)
+	err := fmt.Errorf("%w: etcd service=orders", ErrNoHealthyEndpoints)
 	if got, want := formatPollingErrorReason(err), "class=empty error=no healthy source endpoints: etcd service=orders"; got != want {
 		t.Fatalf("unexpected empty error reason: got=%s want=%s", got, want)
 	}

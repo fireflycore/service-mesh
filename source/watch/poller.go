@@ -1,4 +1,4 @@
-package watchapi
+package watch
 
 import (
 	"context"
@@ -9,9 +9,11 @@ import (
 	"time"
 
 	"github.com/fireflycore/service-mesh/pkg/model"
-	"github.com/fireflycore/service-mesh/source/sourceerr"
 )
 
+// SnapshotPoller 定义一次轮询取数函数。
+//
+// 返回值中的 bool 用来表示目标当前是否仍然存在于目录源中。
 type SnapshotPoller func(context.Context) (model.ServiceSnapshot, bool, error)
 
 const (
@@ -23,14 +25,17 @@ const (
 	ErrorClassInternal                   = "internal"
 )
 
+// PollingOptions 定义 polling watch runner 的运行参数。
 type PollingOptions struct {
 	DegradeAfterConsecutiveErrors int
 }
 
+// RunPolling 使用默认参数启动一个 polling watch 事件流。
 func RunPolling(ctx context.Context, interval time.Duration, target model.ServiceRef, poll SnapshotPoller) Stream {
 	return RunPollingWithOptions(ctx, interval, target, PollingOptions{}, poll)
 }
 
+// RunPollingWithOptions 启动轮询循环，并把轮询结果转换成统一的 watch 事件。
 func RunPollingWithOptions(ctx context.Context, interval time.Duration, target model.ServiceRef, options PollingOptions, poll SnapshotPoller) Stream {
 	if interval <= 0 {
 		interval = time.Second
@@ -136,6 +141,7 @@ func RunPollingWithOptions(ctx context.Context, interval time.Duration, target m
 	return stream
 }
 
+// formatPollingErrorReason 把错误格式化成挂在 stale/degraded 快照上的稳定原因字符串。
 func formatPollingErrorReason(err error) string {
 	if err == nil {
 		return ""
@@ -143,6 +149,7 @@ func formatPollingErrorReason(err error) string {
 	return fmt.Sprintf("class=%s error=%s", classifyPollingError(err), strings.TrimSpace(err.Error()))
 }
 
+// classifyPollingError 把 provider 错误收敛为有限的原因分类。
 func classifyPollingError(err error) string {
 	switch {
 	case err == nil:
@@ -151,27 +158,31 @@ func classifyPollingError(err error) string {
 		return ErrorClassTimeout
 	case errors.Is(err, context.Canceled):
 		return ErrorClassUnavailable
-	case errors.Is(err, sourceerr.ErrNoHealthyEndpoints):
+	case errors.Is(err, ErrNoHealthyEndpoints):
 		return ErrorClassEmpty
 	default:
 		return ErrorClassUnavailable
 	}
 }
 
+// pollingStream 是 Stream 的最小内存实现。
 type pollingStream struct {
 	events chan Event
 }
 
+// newPollingStream 创建一个带缓冲的事件流，避免短时突发事件阻塞轮询循环。
 func newPollingStream() *pollingStream {
 	return &pollingStream{
 		events: make(chan Event, 8),
 	}
 }
 
+// Events 返回供 watch 消费方读取的事件通道。
 func (s *pollingStream) Events() <-chan Event {
 	return s.events
 }
 
+// Close 关闭事件通道，并把重复关闭视为无副作用操作。
 func (s *pollingStream) Close() error {
 	defer func() {
 		recover()
@@ -180,6 +191,7 @@ func (s *pollingStream) Close() error {
 	return nil
 }
 
+// publish 在缓冲区仍有空间时把事件写入通道。
 func (s *pollingStream) publish(event Event) {
 	select {
 	case s.events <- event:

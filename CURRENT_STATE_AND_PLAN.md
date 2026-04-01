@@ -24,6 +24,10 @@
 - M16
   - identity 稳定生成
   - register / subscribe / push 已按 target 与 identity 收敛
+- M17
+  - original end-user identity 已开始以标准 metadata key 做最小透传
+  - ext_authz context_extensions 已开始消费 original user 上下文
+  - invoke span 已开始带 original user presence / subject / issuer
   - selector / arbitration / delivery batch 已基本立住
 
 ## 3. 当前仍存在的问题
@@ -36,6 +40,10 @@
   - provider-specific 的错误分类策略仍未单独细化
 - M16
   - identity 已接入运行链路，但命中解释、日志可见性、指标统一语义还不够完整
+- M17
+  - 当前还是 metadata 级最小透传，尚未形成正式 proto 字段
+  - caller identity 与 original end-user identity 的合并规则仍未显式定义
+  - trust boundary / signature / verification 规则仍未进入实现
 - 文档
   - 当前设计文档已基本与代码方向对齐
   - 但仍要以仓库现状文档为准，而不是继续把“未来建议结构”当成“当前已有结构”

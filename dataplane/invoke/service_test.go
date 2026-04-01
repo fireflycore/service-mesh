@@ -14,6 +14,7 @@ import (
 	"github.com/fireflycore/service-mesh/dataplane/balancer"
 	"github.com/fireflycore/service-mesh/dataplane/resolver"
 	"github.com/fireflycore/service-mesh/pkg/model"
+	"github.com/fireflycore/service-mesh/pkg/originalidentity"
 	"github.com/fireflycore/service-mesh/source/memory"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
@@ -27,6 +28,18 @@ type fakeTransport struct{}
 func (t *fakeTransport) Invoke(_ context.Context, endpoint model.Endpoint, req *invokev1.UnaryInvokeRequest) (*invokev1.UnaryInvokeResponse, error) {
 	return &invokev1.UnaryInvokeResponse{
 		Payload: append([]byte(endpoint.Address+":"), req.GetPayload()...),
+		Codec:   req.GetCodec(),
+	}, nil
+}
+
+type captureTransport struct {
+	req *invokev1.UnaryInvokeRequest
+}
+
+func (t *captureTransport) Invoke(_ context.Context, endpoint model.Endpoint, req *invokev1.UnaryInvokeRequest) (*invokev1.UnaryInvokeResponse, error) {
+	t.req = req
+	return &invokev1.UnaryInvokeResponse{
+		Payload: []byte(endpoint.Address),
 		Codec:   req.GetCodec(),
 	}, nil
 }
@@ -102,6 +115,59 @@ func TestServiceUnaryInvoke(t *testing.T) {
 	}
 	if got, want := resp.GetCodec(), "json"; got != want {
 		t.Fatalf("unexpected codec: got=%s want=%s", got, want)
+	}
+}
+
+func TestServiceUnaryInvokePreservesOriginalIdentityMetadata(t *testing.T) {
+	provider := memory.New(map[string]model.ServiceSnapshot{
+		"default/dev/orders": {
+			Service: model.ServiceRef{Service: "orders", Namespace: "default", Env: "dev"},
+			Endpoints: []model.Endpoint{{
+				Address: "127.0.0.1",
+				Port:    8080,
+			}},
+		},
+	})
+	transport := &captureTransport{}
+	svc := NewService(
+		authz.NewAllowAll(),
+		resolver.New(provider, balancer.NewRoundRobin()),
+		transport,
+		Options{
+			LocalIdentity: &LocalIdentity{
+				AppID:     "gateway",
+				Service:   "gateway",
+				Namespace: "default",
+				Env:       "dev",
+			},
+		},
+	)
+
+	_, err := svc.UnaryInvoke(context.Background(), &invokev1.UnaryInvokeRequest{
+		Target: &invokev1.ServiceRef{
+			Service: "orders",
+		},
+		Method: "/acme.orders.v1.OrderService/GetOrder",
+		Context: &invokev1.InvocationContext{
+			Metadata: []*invokev1.MetadataEntry{
+				{Key: originalidentity.MetadataUserID, Values: []string{"user-1"}},
+				{Key: originalidentity.MetadataSubject, Values: []string{"alice@example.com"}},
+				{Key: originalidentity.MetadataIssuer, Values: []string{"gateway"}},
+			},
+		},
+	})
+	if err != nil {
+		t.Fatalf("invoke failed: %v", err)
+	}
+	identity := originalidentity.Extract(transport.req.GetContext().GetMetadata())
+	if got, want := identity.UserID, "user-1"; got != want {
+		t.Fatalf("unexpected original user id: got=%s want=%s", got, want)
+	}
+	if got, want := identity.Subject, "alice@example.com"; got != want {
+		t.Fatalf("unexpected original user subject: got=%s want=%s", got, want)
+	}
+	if got, want := identity.Issuer, "gateway"; got != want {
+		t.Fatalf("unexpected original user issuer: got=%s want=%s", got, want)
 	}
 }
 
@@ -546,7 +612,7 @@ func TestServiceUnaryInvokeRejectsDegradedSnapshot(t *testing.T) {
 					Namespace: "default",
 					Env:       "dev",
 				},
-				Endpoints: []model.Endpoint{{Address: "127.0.0.1", Port: 8080, Weight: 1}},
+				Endpoints:    []model.Endpoint{{Address: "127.0.0.1", Port: 8080, Weight: 1}},
 				Status:       model.SnapshotStatusDegraded,
 				StatusReason: "all endpoints unhealthy",
 			},

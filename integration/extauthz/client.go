@@ -10,6 +10,7 @@ import (
 	authv3 "github.com/envoyproxy/go-control-plane/envoy/service/auth/v3"
 	invokev1 "github.com/fireflycore/service-mesh/.gen/proto/acme/invoke/v1"
 	"github.com/fireflycore/service-mesh/pkg/config"
+	"github.com/fireflycore/service-mesh/pkg/originalidentity"
 	"go.opentelemetry.io/contrib/instrumentation/google.golang.org/grpc/otelgrpc"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials/insecure"
@@ -112,6 +113,19 @@ func buildCheckRequest(req *invokev1.UnaryInvokeRequest, includeHeaders map[stri
 		headers[entry.GetKey()] = entry.GetValues()[0]
 	}
 
+	original := originalidentity.Extract(req.GetContext().GetMetadata())
+	contextExtensions := map[string]string{
+		"codec":     req.GetCodec(),
+		"namespace": req.GetTarget().GetNamespace(),
+		"env":       req.GetTarget().GetEnv(),
+		"method":    req.GetMethod(),
+	}
+	if original.Present() {
+		contextExtensions["original_user_id"] = original.UserID
+		contextExtensions["original_user_subject"] = original.Subject
+		contextExtensions["original_user_issuer"] = original.Issuer
+	}
+
 	return &authv3.CheckRequest{
 		Attributes: &authv3.AttributeContext{
 			// Source/Destination 是 ext_authz 最核心的两个身份维度。
@@ -138,13 +152,7 @@ func buildCheckRequest(req *invokev1.UnaryInvokeRequest, includeHeaders map[stri
 					Size:     int64(len(req.GetPayload())),
 				},
 			},
-			ContextExtensions: map[string]string{
-				// 附加字段用于给鉴权策略更多 mesh 维度上下文。
-				"codec":     req.GetCodec(),
-				"namespace": req.GetTarget().GetNamespace(),
-				"env":       req.GetTarget().GetEnv(),
-				"method":    req.GetMethod(),
-			},
+			ContextExtensions: contextExtensions,
 		},
 	}
 }

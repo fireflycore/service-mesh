@@ -134,6 +134,7 @@ service
   - subscribe replay explain 导出已补齐，register / subscribe / push 三类调试视图开始对齐
   - controlplane 当前 subscriber / tracked target 状态也已可结构化导出，开始具备最小 debug state 视图
   - debug state 现在也已覆盖 store 内 snapshot / route policy 当前状态，调试视图开始包含“连接态 + 资源态”
+  - M17 也已开始起步：original end-user identity 已有标准 metadata key、invoke span 属性与 ext_authz context_extensions 透传
   - consul / etcd / ext_authz / telemetry 初始化等外部交互已补齐默认超时保护，避免缺环境时长时间挂起
 
 ## 设计原则

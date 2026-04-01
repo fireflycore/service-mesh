@@ -5,6 +5,7 @@ import (
 	"time"
 
 	invokev1 "github.com/fireflycore/service-mesh/.gen/proto/acme/invoke/v1"
+	"github.com/fireflycore/service-mesh/pkg/originalidentity"
 	"go.opentelemetry.io/otel"
 	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/metric"
@@ -76,6 +77,14 @@ func (e *Emitter) StartInvoke(ctx context.Context, req *invokev1.UnaryInvokeRequ
 		attribute.String("mesh.target.env", req.GetTarget().GetEnv()),
 		attribute.String("rpc.method", req.GetMethod()),
 		attribute.String("rpc.codec", req.GetCodec()),
+	}
+	original := originalidentity.Extract(req.GetContext().GetMetadata())
+	if original.Present() {
+		attrs = append(attrs,
+			attribute.Bool("mesh.original_user.present", true),
+			attribute.String("mesh.original_user.subject", original.Subject),
+			attribute.String("mesh.original_user.issuer", original.Issuer),
+		)
 	}
 
 	return e.tracer.Start(ctx, "service-mesh.invoke", trace.WithAttributes(attrs...))

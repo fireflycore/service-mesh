@@ -528,6 +528,22 @@ func (s *Server) ExportDebugState() ServerDebugStateExport {
 		TrackedTargetCount: len(s.trackedTargets),
 		Subscribers:        make([]SubscriberDebugExport, 0, len(s.subscribers)),
 		TrackedTargets:     make([]model.ServiceRef, 0, len(s.trackedTargets)),
+		Snapshots:          make([]SnapshotDebugExport, 0),
+		RoutePolicies:      make([]RoutePolicyDebugExport, 0),
+	}
+	if s.store != nil {
+		snapshots := s.store.AllServiceSnapshots()
+		policies := s.store.AllRoutePolicies()
+		exported.SnapshotCount = len(snapshots)
+		exported.RoutePolicyCount = len(policies)
+		for _, snapshot := range snapshots {
+			exported.Snapshots = append(exported.Snapshots, exportSnapshot(snapshot))
+		}
+		sortSnapshotExports(exported.Snapshots)
+		for _, policy := range policies {
+			exported.RoutePolicies = append(exported.RoutePolicies, exportRoutePolicy(policy))
+		}
+		sortRoutePolicyExports(exported.RoutePolicies)
 	}
 	for _, target := range s.trackedTargets {
 		exported.TrackedTargets = append(exported.TrackedTargets, target)

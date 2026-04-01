@@ -2312,7 +2312,24 @@ func TestServerExplainSubscribeReplay(t *testing.T) {
 }
 
 func TestServerExportDebugState(t *testing.T) {
-	srv := New(snapshot.NewStore())
+	store := snapshot.NewStore()
+	store.PutModelSnapshot(model.ServiceSnapshot{
+		Service: model.ServiceRef{
+			Service:   "orders",
+			Namespace: "default",
+			Env:       "dev",
+			Port:      8080,
+		},
+	})
+	store.PutRoutePolicy(&controlv1.RoutePolicy{
+		Service: &controlv1.ServiceRef{
+			Service:   "orders",
+			Namespace: "default",
+			Env:       "dev",
+			Port:      8080,
+		},
+	})
+	srv := New(store)
 	srv.TrackTarget(model.ServiceRef{
 		Service:   "payments",
 		Namespace: "default",
@@ -2355,6 +2372,12 @@ func TestServerExportDebugState(t *testing.T) {
 	if got, want := exported.TrackedTargetCount, 2; got != want {
 		t.Fatalf("unexpected tracked target count: got=%d want=%d", got, want)
 	}
+	if got, want := exported.SnapshotCount, 1; got != want {
+		t.Fatalf("unexpected snapshot count: got=%d want=%d", got, want)
+	}
+	if got, want := exported.RoutePolicyCount, 1; got != want {
+		t.Fatalf("unexpected route policy count: got=%d want=%d", got, want)
+	}
 	if got, want := len(exported.Subscribers), 2; got != want {
 		t.Fatalf("unexpected subscribers length: got=%d want=%d", got, want)
 	}
@@ -2369,5 +2392,14 @@ func TestServerExportDebugState(t *testing.T) {
 	}
 	if got, want := exported.TrackedTargets[0].Service, "orders"; got != want {
 		t.Fatalf("unexpected first tracked target: got=%s want=%s", got, want)
+	}
+	if got, want := exported.Snapshots[0].Service.Service, "orders"; got != want {
+		t.Fatalf("unexpected first snapshot service: got=%s want=%s", got, want)
+	}
+	if got, want := exported.Snapshots[0].Status, "current"; got != want {
+		t.Fatalf("unexpected first snapshot status: got=%s want=%s", got, want)
+	}
+	if got, want := exported.RoutePolicies[0].Service.Service, "orders"; got != want {
+		t.Fatalf("unexpected first route policy service: got=%s want=%s", got, want)
 	}
 }

@@ -110,6 +110,10 @@ func snapshotStatusLabel(status controlv1.SnapshotStatus) string {
 	}
 }
 
+func SnapshotStatusLabel(status controlv1.SnapshotStatus) string {
+	return snapshotStatusLabel(status)
+}
+
 func SnapshotReasonClass(reason string) string {
 	trimmed := strings.TrimSpace(reason)
 	if trimmed == "" {

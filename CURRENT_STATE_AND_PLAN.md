@@ -80,6 +80,7 @@
 - controlplane server 已开始提供可调用的 replay / push explain 导出方法，便于后续接调试接口
 - controlplane server 现在也已补齐 subscribe replay explain 导出，register / subscribe / push 三类视图开始对齐
 - controlplane 当前 subscriber / tracked target 状态也已可结构化导出，开始具备最小 debug state 视图
+- debug state 现在也已覆盖 store 内 snapshot / route policy 当前状态，调试视图开始包含“连接态 + 资源态”
 
 ### 第三优先级：M18 最小观测补强
 

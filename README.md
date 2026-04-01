@@ -137,6 +137,7 @@ service
   - M17 也已开始起步：original end-user identity 已有标准 metadata key、invoke span 属性与 ext_authz context_extensions 透传
   - original end-user identity 当前已显式标记为 `metadata / unverified`，并与 caller identity 分离保留
   - effective principal 也已开始显式收敛：优先 original user，其次 caller service
+  - issuer-only original metadata 不会单独升级为 effective principal，避免仅凭来源说明字段切换主体
   - consul / etcd / ext_authz / telemetry 初始化等外部交互已补齐默认超时保护，避免缺环境时长时间挂起
 
 ## 设计原则

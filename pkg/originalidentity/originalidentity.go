@@ -52,6 +52,10 @@ func (i Identity) Present() bool {
 	return strings.TrimSpace(i.UserID) != "" || strings.TrimSpace(i.Subject) != "" || strings.TrimSpace(i.Issuer) != ""
 }
 
+func (i Identity) Identified() bool {
+	return strings.TrimSpace(i.UserID) != "" || strings.TrimSpace(i.Subject) != ""
+}
+
 func Extract(entries []*invokev1.MetadataEntry) Identity {
 	identity := Identity{}
 	for _, entry := range entries {
@@ -127,7 +131,7 @@ func (e Effective) ContextExtensions() map[string]string {
 }
 
 func (e Effective) Principal() Principal {
-	if e.Identity.Present() {
+	if e.Identity.Identified() {
 		subject := strings.TrimSpace(e.Subject)
 		if subject == "" {
 			subject = strings.TrimSpace(e.UserID)

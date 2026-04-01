@@ -30,6 +30,7 @@
   - invoke span 已开始带 original user presence / subject / issuer
   - original end-user identity 当前已显式标记为 `metadata / unverified`
   - effective principal 已开始显式收敛：优先 original user，其次 caller service
+  - issuer-only original metadata 不会单独升级为 effective principal
   - selector / arbitration / delivery batch 已基本立住
 
 ## 3. 当前仍存在的问题

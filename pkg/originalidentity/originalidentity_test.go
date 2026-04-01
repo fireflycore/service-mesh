@@ -85,3 +85,35 @@ func TestResolveFallsBackToCallerPrincipal(t *testing.T) {
 		t.Fatalf("unexpected principal trust: got=%s want=%s", got, want)
 	}
 }
+
+func TestResolveIssuerOnlyFallsBackToCallerPrincipal(t *testing.T) {
+	effective := Resolve(&invokev1.InvocationContext{
+		Caller: &invokev1.Caller{
+			Service: "gateway",
+		},
+		Metadata: []*invokev1.MetadataEntry{
+			{Key: MetadataIssuer, Values: []string{"edge-gateway"}},
+		},
+	})
+
+	if !effective.Identity.Present() {
+		t.Fatal("expected issuer-only identity to be present")
+	}
+	if effective.Identity.Identified() {
+		t.Fatal("expected issuer-only identity to be non-identifying")
+	}
+	principal := effective.Principal()
+	if got, want := principal.Kind, PrincipalCaller; got != want {
+		t.Fatalf("unexpected principal kind: got=%s want=%s", got, want)
+	}
+	if got, want := principal.Subject, "gateway"; got != want {
+		t.Fatalf("unexpected principal subject: got=%s want=%s", got, want)
+	}
+	extensions := effective.ContextExtensions()
+	if got, want := extensions["effective_principal_kind"], PrincipalCaller; got != want {
+		t.Fatalf("unexpected effective_principal_kind: got=%s want=%s", got, want)
+	}
+	if got, want := extensions["original_user_issuer"], "edge-gateway"; got != want {
+		t.Fatalf("unexpected original_user_issuer: got=%s want=%s", got, want)
+	}
+}

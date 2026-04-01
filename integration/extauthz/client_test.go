@@ -42,4 +42,13 @@ func TestBuildCheckRequestIncludesOriginalIdentityContext(t *testing.T) {
 	if got, want := extensions["original_user_issuer"], "gateway"; got != want {
 		t.Fatalf("unexpected original user issuer: got=%s want=%s", got, want)
 	}
+	if got, want := extensions["original_user_source"], originalidentity.SourceMetadata; got != want {
+		t.Fatalf("unexpected original user source: got=%s want=%s", got, want)
+	}
+	if got, want := extensions["original_user_trust"], originalidentity.TrustUnverified; got != want {
+		t.Fatalf("unexpected original user trust: got=%s want=%s", got, want)
+	}
+	if got, want := extensions["caller_service"], "gateway"; got != want {
+		t.Fatalf("unexpected caller service: got=%s want=%s", got, want)
+	}
 }

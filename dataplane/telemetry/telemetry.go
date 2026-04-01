@@ -78,10 +78,12 @@ func (e *Emitter) StartInvoke(ctx context.Context, req *invokev1.UnaryInvokeRequ
 		attribute.String("rpc.method", req.GetMethod()),
 		attribute.String("rpc.codec", req.GetCodec()),
 	}
-	original := originalidentity.Extract(req.GetContext().GetMetadata())
+	original := originalidentity.Resolve(req.GetContext())
 	if original.Present() {
 		attrs = append(attrs,
 			attribute.Bool("mesh.original_user.present", true),
+			attribute.String("mesh.original_user.source", original.Source),
+			attribute.String("mesh.original_user.trust", original.Trust),
 			attribute.String("mesh.original_user.subject", original.Subject),
 			attribute.String("mesh.original_user.issuer", original.Issuer),
 		)

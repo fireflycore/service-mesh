@@ -26,3 +26,33 @@ func TestExtract(t *testing.T) {
 		t.Fatal("expected identity to be present")
 	}
 }
+
+func TestResolve(t *testing.T) {
+	effective := Resolve(&invokev1.InvocationContext{
+		Caller: &invokev1.Caller{
+			Service:   "gateway",
+			Namespace: "default",
+			Env:       "dev",
+		},
+		Metadata: []*invokev1.MetadataEntry{
+			{Key: MetadataSubject, Values: []string{"alice@example.com"}},
+		},
+	})
+
+	if got, want := effective.Source, SourceMetadata; got != want {
+		t.Fatalf("unexpected source: got=%s want=%s", got, want)
+	}
+	if got, want := effective.Trust, TrustUnverified; got != want {
+		t.Fatalf("unexpected trust: got=%s want=%s", got, want)
+	}
+	if got, want := effective.Caller.Service, "gateway"; got != want {
+		t.Fatalf("unexpected caller service: got=%s want=%s", got, want)
+	}
+	extensions := effective.ContextExtensions()
+	if got, want := extensions["caller_service"], "gateway"; got != want {
+		t.Fatalf("unexpected caller_service extension: got=%s want=%s", got, want)
+	}
+	if got, want := extensions["original_user_trust"], TrustUnverified; got != want {
+		t.Fatalf("unexpected original_user_trust extension: got=%s want=%s", got, want)
+	}
+}

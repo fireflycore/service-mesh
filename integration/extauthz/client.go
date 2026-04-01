@@ -113,17 +113,15 @@ func buildCheckRequest(req *invokev1.UnaryInvokeRequest, includeHeaders map[stri
 		headers[entry.GetKey()] = entry.GetValues()[0]
 	}
 
-	original := originalidentity.Extract(req.GetContext().GetMetadata())
+	original := originalidentity.Resolve(req.GetContext())
 	contextExtensions := map[string]string{
 		"codec":     req.GetCodec(),
 		"namespace": req.GetTarget().GetNamespace(),
 		"env":       req.GetTarget().GetEnv(),
 		"method":    req.GetMethod(),
 	}
-	if original.Present() {
-		contextExtensions["original_user_id"] = original.UserID
-		contextExtensions["original_user_subject"] = original.Subject
-		contextExtensions["original_user_issuer"] = original.Issuer
+	for key, value := range original.ContextExtensions() {
+		contextExtensions[key] = value
 	}
 
 	return &authv3.CheckRequest{

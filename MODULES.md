@@ -16,11 +16,11 @@ service-mesh/
     service-mesh/
   cmd/
     service-mesh/
-  controlplane/
+  plane/control/
     client/
     server/
     snapshot/
-  dataplane/
+  plane/data/
     authz/
     balancer/
     invoke/
@@ -46,8 +46,8 @@ service-mesh/
     consul/
     etcd/
     memory/
-    watchapi/
-  testdata/
+    watch/
+  examples/mvp/
   README.md
   MODULES.md
 ```
@@ -55,33 +55,33 @@ service-mesh/
 ## 3. 模块说明
 
 - `app/service-mesh`
-  - 负责把配置、runtime、source、authz、telemetry、controlplane 组装成可运行应用
+  - 负责把配置、runtime、source、authz、telemetry、control plane 组装成可运行应用
 - `cmd/service-mesh`
   - CLI 入口
   - 包含 `run / validate / print-config / version` 等子命令
-- `controlplane/client`
-  - dataplane 连接 control plane 的客户端
+- `plane/control/client`
+  - data plane 连接 control plane 的客户端
   - 负责 register、heartbeat、subscribe、接收 snapshot / policy / delete 更新
-- `controlplane/server`
+- `plane/control/server`
   - MeshControlPlaneService 服务端
   - 负责 register、目标订阅、定向推送、watch update 广播
-- `controlplane/snapshot`
+- `plane/control/snapshot`
   - control plane 的本地快照存储与 loader
   - 负责 revision、watch bridge、snapshot delete、变更写入
-- `dataplane/authz`
+- `plane/data/authz`
   - 对齐 `Envoy ext_authz` 的授权调用
-- `dataplane/balancer`
+- `plane/data/balancer`
   - 服务实例选择策略
   - 当前以最小 round-robin 语义为主
-- `dataplane/invoke`
+- `plane/data/invoke`
   - 统一业务调用主链
   - 串起 authz、resolver、transport、retry、timeout、telemetry
-- `dataplane/resolver`
+- `plane/data/resolver`
   - 把目标服务解析为单个 endpoint
   - 当前已显式消费 `stale / degraded`
-- `dataplane/telemetry`
+- `plane/data/telemetry`
   - OTel trace / metric 的最小抽象层
-- `dataplane/transport`
+- `plane/data/transport`
   - 底层 gRPC transport 封装
 - `integration/extauthz`
   - ext_authz 对齐用的外部集成辅助代码
@@ -111,44 +111,41 @@ service-mesh/
   - etcd 目录适配器
 - `source/memory`
   - 内存版 source，主要用于测试与本地验证
-- `source/watchapi`
+- `source/watch`
   - watch 类型、polling watch runner、错误分类与状态升级逻辑
-- `source/sourceerr`
-  - source 侧统一错误语义
-  - 当前已承接 `no healthy endpoints` 这类 provider 共享错误
 - `source/overlay.go`
-  - controlplane snapshot 与原始 source 的叠加与回退逻辑
+  - control plane snapshot 与原始 source 的叠加与回退逻辑
 - `source/provider.go`
   - source 抽象与 provider 装配入口
 - `source/watch.go`
   - watch 对外兼容类型别名
-- `testdata`
-  - agent / sidecar 样例配置
+- `examples/mvp`
+  - MVP 控制面、上游服务、客户端与示例配置
 
 ## 4. 当前主线责任划分
 
 - M14 主路径
-  - `controlplane/client`
-  - `controlplane/server`
+  - `plane/control/client`
+  - `plane/control/server`
   - `source/overlay.go`
-  - `dataplane/resolver`
+  - `plane/data/resolver`
 - M15 目录汇聚层
-  - `controlplane/snapshot`
-  - `source/watchapi`
+  - `plane/control/snapshot`
+  - `source/watch`
   - `source/consul`
   - `source/etcd`
   - `source/memory`
-  - `controlplane/server/watch_manager.go`
+  - `plane/control/server/watch_manager.go`
 - M16 identity 与定向下发
   - `runtime/shared`
-  - `controlplane/server/selector.go`
-  - `controlplane/server/delivery_cycle.go`
-  - `controlplane/server/delivery_batch.go`
+  - `plane/control/server/selector.go`
+  - `plane/control/server/delivery_cycle.go`
+  - `plane/control/server/delivery_batch.go`
 
 ## 5. 当前最重要的状态
 
 - 已完成：
-  - controlplane 默认主路径
+  - control plane 默认主路径
   - target subscribe / targeted push
   - snapshot delete 显式消息
   - snapshot `current / stale / degraded`
@@ -158,3 +155,13 @@ service-mesh/
   - watch/source 错误分级的正式策略
   - stale / degraded 的观测出口
   - M16 的 identity 命中与运行态统一语义
+
+## 6. 设计文档入口
+
+- V2 文档索引：`../lhdht/backend/design/mesh/v2/README.md`
+- 当前重构版总览：`../lhdht/backend/design/mesh/v2/service-mesh-minimal-architecture.md`
+- 模块拆分方案：`../lhdht/backend/design/mesh/v2/service-mesh-module-split.md`
+- 运行时模式拆分：`../lhdht/backend/design/mesh/v2/service-mesh-runtime-modes.md`
+- 数据面拆分方案：`../lhdht/backend/design/mesh/v2/service-mesh-data-plane.md`
+- 控制面拆分方案：`../lhdht/backend/design/mesh/v2/service-mesh-control-plane.md`
+- 历史设计索引：`../lhdht/backend/design/mesh/README.md`

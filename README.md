@@ -184,11 +184,24 @@ buf generate
 
 - [design/mesh/README.md](../../lhdht/backend/design/mesh/README.md)
 
-推荐先看：
+推荐先看当前重构版：
+
+- [v2/README.md](../../lhdht/backend/design/mesh/v2/README.md)
+- [service-mesh-minimal-architecture.md](../../lhdht/backend/design/mesh/v2/service-mesh-minimal-architecture.md)
+- [service-mesh-module-split.md](../../lhdht/backend/design/mesh/v2/service-mesh-module-split.md)
+- [service-mesh-runtime-modes.md](../../lhdht/backend/design/mesh/v2/service-mesh-runtime-modes.md)
+- [service-mesh-data-plane.md](../../lhdht/backend/design/mesh/v2/service-mesh-data-plane.md)
+- [service-mesh-control-plane.md](../../lhdht/backend/design/mesh/v2/service-mesh-control-plane.md)
+- [service-mesh-source-watch.md](../../lhdht/backend/design/mesh/v2/service-mesh-source-watch.md)
+- [service-mesh-proto-boundary.md](../../lhdht/backend/design/mesh/v2/service-mesh-proto-boundary.md)
+- [service-mesh-config-boundary.md](../../lhdht/backend/design/mesh/v2/service-mesh-config-boundary.md)
+- [service-mesh-v2-roadmap.md](../../lhdht/backend/design/mesh/v2/service-mesh-v2-roadmap.md)
+- [MODULES.md](./MODULES.md)
+
+历史方案与实现演进可继续参考：
 
 - [service-mesh-plan.md](../../lhdht/backend/design/mesh/service-mesh-plan.md)
 - [service-mesh-component-design.md](../../lhdht/backend/design/mesh/service-mesh-component-design.md)
 - [service-mesh-proto-contract.md](../../lhdht/backend/design/mesh/service-mesh-proto-contract.md)
 - [service-mesh-mvp-decisions.md](../../lhdht/backend/design/mesh/service-mesh-mvp-decisions.md)
-- [MODULES.md](./MODULES.md)
 - [CURRENT_STATE_AND_PLAN.md](./CURRENT_STATE_AND_PLAN.md)

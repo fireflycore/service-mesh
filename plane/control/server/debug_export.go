@@ -4,10 +4,11 @@ import (
 	"sort"
 
 	controlv1 "github.com/fireflycore/service-mesh/.gen/proto/acme/control/v1"
-	controltelemetry "github.com/fireflycore/service-mesh/controlplane/telemetry"
 	"github.com/fireflycore/service-mesh/pkg/model"
+	controltelemetry "github.com/fireflycore/service-mesh/plane/control/telemetry"
 )
 
+// DataplaneIdentityExport documents the corresponding declaration.
 type DataplaneIdentityExport struct {
 	DataplaneID string
 	NodeID      string
@@ -15,12 +16,14 @@ type DataplaneIdentityExport struct {
 	Env         string
 }
 
+// SubscriberDebugExport documents the corresponding declaration.
 type SubscriberDebugExport struct {
 	SubscriberID uint64
 	Identity     DataplaneIdentityExport
 	Targets      []model.ServiceRef
 }
 
+// ServerDebugStateExport documents the corresponding declaration.
 type ServerDebugStateExport struct {
 	SubscriberCount    int
 	TrackedTargetCount int
@@ -32,16 +35,19 @@ type ServerDebugStateExport struct {
 	RoutePolicies      []RoutePolicyDebugExport
 }
 
+// SnapshotDebugExport documents the corresponding declaration.
 type SnapshotDebugExport struct {
 	Service     model.ServiceRef
 	Status      string
 	ReasonClass string
 }
 
+// RoutePolicyDebugExport documents the corresponding declaration.
 type RoutePolicyDebugExport struct {
 	Service model.ServiceRef
 }
 
+// sortServiceRefs documents the corresponding declaration.
 func sortServiceRefs(targets []model.ServiceRef) {
 	sort.Slice(targets, func(i, j int) bool {
 		if targets[i].Namespace != targets[j].Namespace {
@@ -57,18 +63,21 @@ func sortServiceRefs(targets []model.ServiceRef) {
 	})
 }
 
+// sortSnapshotExports documents the corresponding declaration.
 func sortSnapshotExports(items []SnapshotDebugExport) {
 	sort.Slice(items, func(i, j int) bool {
 		return compareServiceRefs(items[i].Service, items[j].Service)
 	})
 }
 
+// sortRoutePolicyExports documents the corresponding declaration.
 func sortRoutePolicyExports(items []RoutePolicyDebugExport) {
 	sort.Slice(items, func(i, j int) bool {
 		return compareServiceRefs(items[i].Service, items[j].Service)
 	})
 }
 
+// compareServiceRefs documents the corresponding declaration.
 func compareServiceRefs(left, right model.ServiceRef) bool {
 	if left.Namespace != right.Namespace {
 		return left.Namespace < right.Namespace
@@ -82,6 +91,7 @@ func compareServiceRefs(left, right model.ServiceRef) bool {
 	return left.Port < right.Port
 }
 
+// exportSnapshot documents the corresponding declaration.
 func exportSnapshot(snapshot *controlv1.ServiceSnapshot) SnapshotDebugExport {
 	if snapshot == nil || snapshot.GetService() == nil {
 		return SnapshotDebugExport{}
@@ -98,6 +108,7 @@ func exportSnapshot(snapshot *controlv1.ServiceSnapshot) SnapshotDebugExport {
 	}
 }
 
+// exportRoutePolicy documents the corresponding declaration.
 func exportRoutePolicy(policy *controlv1.RoutePolicy) RoutePolicyDebugExport {
 	if policy == nil || policy.GetService() == nil {
 		return RoutePolicyDebugExport{}

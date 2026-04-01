@@ -7,11 +7,13 @@ import (
 	"github.com/fireflycore/service-mesh/pkg/model"
 )
 
+// subscriberSelector documents the corresponding declaration.
 type subscriberSelector struct {
 	identity *controlv1.DataplaneIdentity
 	targets  map[string]model.ServiceRef
 }
 
+// resourceSelector documents the corresponding declaration.
 type resourceSelector struct {
 	target              model.ServiceRef
 	service             *controlv1.ServiceRef
@@ -19,6 +21,7 @@ type resourceSelector struct {
 	requireIdentity     bool
 }
 
+// matchPriority documents the corresponding declaration.
 type matchPriority uint8
 
 const (
@@ -27,34 +30,41 @@ const (
 	matchPriorityExact
 )
 
+// selectorMatch documents the corresponding declaration.
 type selectorMatch struct {
 	subscription matchPriority
 	identity     matchPriority
 }
 
+// resourceArbitrator documents the corresponding declaration.
 type resourceArbitrator struct {
 	snapshots map[string]*controlv1.ServiceSnapshot
 	policies  map[string]*controlv1.RoutePolicy
 }
 
+// arbitrationCache documents the corresponding declaration.
 type arbitrationCache struct {
 	snapshots []*controlv1.ServiceSnapshot
 	policies  []*controlv1.RoutePolicy
 	byKey     map[string]resourceArbitrator
 }
 
+// matchesDataplaneIdentity documents the corresponding declaration.
 func matchesDataplaneIdentity(service *controlv1.ServiceRef, identity *controlv1.DataplaneIdentity) bool {
 	return matchIdentityScope(service, identity) != matchPriorityNone
 }
 
+// matchesIdentityScope documents the corresponding declaration.
 func matchesIdentityScope(service *controlv1.ServiceRef, identity *controlv1.DataplaneIdentity) bool {
 	return matchIdentityScope(service, identity) != matchPriorityNone
 }
 
+// matchesDimension documents the corresponding declaration.
 func matchesDimension(serviceValue, identityValue string) bool {
 	return matchDimension(serviceValue, identityValue) != matchPriorityNone
 }
 
+// matchDimension documents the corresponding declaration.
 func matchDimension(serviceValue, identityValue string) matchPriority {
 	serviceValue = strings.TrimSpace(serviceValue)
 	identityValue = strings.TrimSpace(identityValue)
@@ -68,6 +78,7 @@ func matchDimension(serviceValue, identityValue string) matchPriority {
 	}
 }
 
+// matchIdentityScope documents the corresponding declaration.
 func matchIdentityScope(service *controlv1.ServiceRef, identity *controlv1.DataplaneIdentity) matchPriority {
 	if service == nil || identity == nil {
 		return matchPriorityFallback
@@ -86,10 +97,12 @@ func matchIdentityScope(service *controlv1.ServiceRef, identity *controlv1.Datap
 	return matchPriorityFallback
 }
 
+// selectBestSnapshotsForIdentity documents the corresponding declaration.
 func selectBestSnapshotsForIdentity(snapshots []*controlv1.ServiceSnapshot, identity *controlv1.DataplaneIdentity) []*controlv1.ServiceSnapshot {
 	return newResourceArbitrator(snapshots, nil, identity).SelectedSnapshots()
 }
 
+// selectBestSnapshotMapForIdentity documents the corresponding declaration.
 func selectBestSnapshotMapForIdentity(snapshots []*controlv1.ServiceSnapshot, identity *controlv1.DataplaneIdentity) map[string]*controlv1.ServiceSnapshot {
 	best := make(map[string]*controlv1.ServiceSnapshot)
 	priorities := make(map[string]matchPriority)
@@ -110,10 +123,12 @@ func selectBestSnapshotMapForIdentity(snapshots []*controlv1.ServiceSnapshot, id
 	return best
 }
 
+// selectBestRoutePoliciesForIdentity documents the corresponding declaration.
 func selectBestRoutePoliciesForIdentity(policies []*controlv1.RoutePolicy, identity *controlv1.DataplaneIdentity) []*controlv1.RoutePolicy {
 	return newResourceArbitrator(nil, policies, identity).SelectedPolicies()
 }
 
+// selectBestRoutePolicyMapForIdentity documents the corresponding declaration.
 func selectBestRoutePolicyMapForIdentity(policies []*controlv1.RoutePolicy, identity *controlv1.DataplaneIdentity) map[string]*controlv1.RoutePolicy {
 	best := make(map[string]*controlv1.RoutePolicy)
 	priorities := make(map[string]matchPriority)
@@ -134,6 +149,7 @@ func selectBestRoutePolicyMapForIdentity(policies []*controlv1.RoutePolicy, iden
 	return best
 }
 
+// resourceFamilyKey documents the corresponding declaration.
 func resourceFamilyKey(service *controlv1.ServiceRef) string {
 	if service == nil {
 		return ""
@@ -141,6 +157,7 @@ func resourceFamilyKey(service *controlv1.ServiceRef) string {
 	return strings.TrimSpace(service.GetNamespace()) + "/" + strings.TrimSpace(service.GetService())
 }
 
+// collectSnapshots documents the corresponding declaration.
 func collectSnapshots(values map[string]*controlv1.ServiceSnapshot) []*controlv1.ServiceSnapshot {
 	result := make([]*controlv1.ServiceSnapshot, 0, len(values))
 	for _, snapshot := range values {
@@ -152,6 +169,7 @@ func collectSnapshots(values map[string]*controlv1.ServiceSnapshot) []*controlv1
 	return result
 }
 
+// collectPolicies documents the corresponding declaration.
 func collectPolicies(values map[string]*controlv1.RoutePolicy) []*controlv1.RoutePolicy {
 	result := make([]*controlv1.RoutePolicy, 0, len(values))
 	for _, policy := range values {
@@ -163,6 +181,7 @@ func collectPolicies(values map[string]*controlv1.RoutePolicy) []*controlv1.Rout
 	return result
 }
 
+// newResourceArbitrator documents the corresponding declaration.
 func newResourceArbitrator(snapshots []*controlv1.ServiceSnapshot, policies []*controlv1.RoutePolicy, identity *controlv1.DataplaneIdentity) resourceArbitrator {
 	return resourceArbitrator{
 		snapshots: selectBestSnapshotMapForIdentity(snapshots, identity),
@@ -170,6 +189,7 @@ func newResourceArbitrator(snapshots []*controlv1.ServiceSnapshot, policies []*c
 	}
 }
 
+// newArbitrationCache documents the corresponding declaration.
 func newArbitrationCache(snapshots []*controlv1.ServiceSnapshot, policies []*controlv1.RoutePolicy) *arbitrationCache {
 	return &arbitrationCache{
 		snapshots: snapshots,
@@ -178,6 +198,7 @@ func newArbitrationCache(snapshots []*controlv1.ServiceSnapshot, policies []*con
 	}
 }
 
+// ForIdentity documents the corresponding declaration.
 func (c *arbitrationCache) ForIdentity(identity *controlv1.DataplaneIdentity) resourceArbitrator {
 	if c == nil {
 		return resourceArbitrator{}
@@ -191,6 +212,7 @@ func (c *arbitrationCache) ForIdentity(identity *controlv1.DataplaneIdentity) re
 	return arbitrator
 }
 
+// ForSubscriber documents the corresponding declaration.
 func (c *arbitrationCache) ForSubscriber(subscriber *subscriber) resourceArbitrator {
 	if subscriber == nil {
 		return resourceArbitrator{}
@@ -198,6 +220,7 @@ func (c *arbitrationCache) ForSubscriber(subscriber *subscriber) resourceArbitra
 	return c.ForIdentity(subscriber.identity)
 }
 
+// identityCacheKey documents the corresponding declaration.
 func identityCacheKey(identity *controlv1.DataplaneIdentity) string {
 	if identity == nil {
 		return ""
@@ -205,14 +228,17 @@ func identityCacheKey(identity *controlv1.DataplaneIdentity) string {
 	return identity.GetNamespace() + "/" + identity.GetEnv() + "/" + identity.GetDataplaneId() + "/" + identity.GetNodeId()
 }
 
+// SelectedSnapshots documents the corresponding declaration.
 func (a resourceArbitrator) SelectedSnapshots() []*controlv1.ServiceSnapshot {
 	return collectSnapshots(a.snapshots)
 }
 
+// SelectedPolicies documents the corresponding declaration.
 func (a resourceArbitrator) SelectedPolicies() []*controlv1.RoutePolicy {
 	return collectPolicies(a.policies)
 }
 
+// Explain documents the corresponding declaration.
 func (a resourceArbitrator) Explain(identity *controlv1.DataplaneIdentity) replayExplainSummary {
 	summary := replayExplainSummary{}
 	for _, snapshot := range a.SelectedSnapshots() {
@@ -234,6 +260,7 @@ func (a resourceArbitrator) Explain(identity *controlv1.DataplaneIdentity) repla
 	return summary
 }
 
+// SnapshotForTarget documents the corresponding declaration.
 func (a resourceArbitrator) SnapshotForTarget(target model.ServiceRef) *controlv1.ServiceSnapshot {
 	return a.snapshots[resourceFamilyKey(&controlv1.ServiceRef{
 		Service:   target.Service,
@@ -243,6 +270,7 @@ func (a resourceArbitrator) SnapshotForTarget(target model.ServiceRef) *controlv
 	})]
 }
 
+// PolicyForTarget documents the corresponding declaration.
 func (a resourceArbitrator) PolicyForTarget(target model.ServiceRef) *controlv1.RoutePolicy {
 	return a.policies[resourceFamilyKey(&controlv1.ServiceRef{
 		Service:   target.Service,
@@ -252,6 +280,7 @@ func (a resourceArbitrator) PolicyForTarget(target model.ServiceRef) *controlv1.
 	})]
 }
 
+// AllowsSnapshot documents the corresponding declaration.
 func (a resourceArbitrator) AllowsSnapshot(snapshot *controlv1.ServiceSnapshot) bool {
 	if snapshot == nil || snapshot.GetService() == nil {
 		return false
@@ -260,6 +289,7 @@ func (a resourceArbitrator) AllowsSnapshot(snapshot *controlv1.ServiceSnapshot) 
 	return ok && best == snapshot
 }
 
+// AllowsPolicy documents the corresponding declaration.
 func (a resourceArbitrator) AllowsPolicy(policy *controlv1.RoutePolicy) bool {
 	if policy == nil || policy.GetService() == nil {
 		return false
@@ -268,6 +298,7 @@ func (a resourceArbitrator) AllowsPolicy(policy *controlv1.RoutePolicy) bool {
 	return ok && best == policy
 }
 
+// selectorFromResponse documents the corresponding declaration.
 func selectorFromResponse(resp *controlv1.ConnectResponse, fallbackTarget model.ServiceRef) resourceSelector {
 	selector := resourceSelector{
 		target:              fallbackTarget,
@@ -293,6 +324,7 @@ func selectorFromResponse(resp *controlv1.ConnectResponse, fallbackTarget model.
 	return selector
 }
 
+// selectorFromSnapshotDeleted documents the corresponding declaration.
 func selectorFromSnapshotDeleted(deleted *controlv1.ServiceSnapshotDeleted, fallbackTarget model.ServiceRef, requireSubscription bool) resourceSelector {
 	selector := resourceSelector{
 		target:              fallbackTarget,
@@ -308,6 +340,7 @@ func selectorFromSnapshotDeleted(deleted *controlv1.ServiceSnapshotDeleted, fall
 	return selector
 }
 
+// selectorFromSnapshot documents the corresponding declaration.
 func selectorFromSnapshot(snapshot *controlv1.ServiceSnapshot, fallbackTarget model.ServiceRef, requireSubscription bool) resourceSelector {
 	selector := resourceSelector{
 		target:              fallbackTarget,
@@ -323,6 +356,7 @@ func selectorFromSnapshot(snapshot *controlv1.ServiceSnapshot, fallbackTarget mo
 	return selector
 }
 
+// selectorFromRoutePolicy documents the corresponding declaration.
 func selectorFromRoutePolicy(policy *controlv1.RoutePolicy, fallbackTarget model.ServiceRef, requireSubscription bool) resourceSelector {
 	selector := resourceSelector{
 		target:              fallbackTarget,
@@ -339,6 +373,7 @@ func selectorFromRoutePolicy(policy *controlv1.RoutePolicy, fallbackTarget model
 	return selector
 }
 
+// selectorFromSubscriber documents the corresponding declaration.
 func selectorFromSubscriber(subscriber *subscriber) subscriberSelector {
 	if subscriber == nil {
 		return subscriberSelector{}
@@ -349,10 +384,12 @@ func selectorFromSubscriber(subscriber *subscriber) subscriberSelector {
 	}
 }
 
+// matchesSelectors documents the corresponding declaration.
 func matchesSelectors(subscriber subscriberSelector, resource resourceSelector) bool {
 	return evaluateSelectorMatch(subscriber, resource).matched()
 }
 
+// evaluateSelectorMatch documents the corresponding declaration.
 func evaluateSelectorMatch(subscriber subscriberSelector, resource resourceSelector) selectorMatch {
 	result := selectorMatch{
 		subscription: matchPriorityExact,
@@ -367,18 +404,22 @@ func evaluateSelectorMatch(subscriber subscriberSelector, resource resourceSelec
 	return result
 }
 
+// matched documents the corresponding declaration.
 func (m selectorMatch) matched() bool {
 	return m.subscription != matchPriorityNone && m.identity != matchPriorityNone
 }
 
+// subscriptionLabel documents the corresponding declaration.
 func (m selectorMatch) subscriptionLabel() string {
 	return matchPriorityLabel(m.subscription)
 }
 
+// identityLabel documents the corresponding declaration.
 func (m selectorMatch) identityLabel() string {
 	return matchPriorityLabel(m.identity)
 }
 
+// matchPriorityLabel documents the corresponding declaration.
 func matchPriorityLabel(priority matchPriority) string {
 	switch priority {
 	case matchPriorityExact:
@@ -390,6 +431,7 @@ func matchPriorityLabel(priority matchPriority) string {
 	}
 }
 
+// toModelTarget documents the corresponding declaration.
 func toModelTarget(service *controlv1.ServiceRef) model.ServiceRef {
 	if service == nil {
 		return model.ServiceRef{}
@@ -402,14 +444,17 @@ func toModelTarget(service *controlv1.ServiceRef) model.ServiceRef {
 	}
 }
 
+// shouldReceive documents the corresponding declaration.
 func (s *subscriber) shouldReceive(target model.ServiceRef) bool {
 	return selectorFromSubscriber(s).acceptsTarget(target)
 }
 
+// acceptsTarget documents the corresponding declaration.
 func (s subscriberSelector) acceptsTarget(target model.ServiceRef) bool {
 	return s.matchTarget(target) != matchPriorityNone
 }
 
+// matchTarget documents the corresponding declaration.
 func (s subscriberSelector) matchTarget(target model.ServiceRef) matchPriority {
 	if strings.TrimSpace(target.Service) == "" {
 		return matchPriorityFallback
@@ -428,6 +473,7 @@ func (s subscriberSelector) matchTarget(target model.ServiceRef) matchPriority {
 	return matchPriorityNone
 }
 
+// matchTargetFamily documents the corresponding declaration.
 func matchTargetFamily(subscribed, resource model.ServiceRef) matchPriority {
 	if strings.TrimSpace(subscribed.Service) == "" || strings.TrimSpace(resource.Service) == "" {
 		return matchPriorityNone

@@ -9,8 +9,8 @@ import (
 	"time"
 
 	controlv1 "github.com/fireflycore/service-mesh/.gen/proto/acme/control/v1"
-	"github.com/fireflycore/service-mesh/controlplane/snapshot"
 	"github.com/fireflycore/service-mesh/pkg/model"
+	"github.com/fireflycore/service-mesh/plane/control/snapshot"
 	"github.com/fireflycore/service-mesh/source"
 	"github.com/fireflycore/service-mesh/source/memory"
 	"google.golang.org/grpc"

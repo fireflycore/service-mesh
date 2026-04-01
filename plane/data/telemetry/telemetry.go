@@ -31,7 +31,7 @@ type Emitter struct {
 // NewEmitter 基于全局 OTel provider 创建 telemetry emitter。
 func NewEmitter() (*Emitter, error) {
 	// meter/tracer 都依赖 integration/otel 预先安装的全局 provider。
-	meter := otel.Meter("github.com/fireflycore/service-mesh/dataplane/telemetry")
+	meter := otel.Meter("github.com/fireflycore/service-mesh/plane/data/telemetry")
 
 	requestCounter, err := meter.Int64Counter("service_mesh.invoke.requests")
 	if err != nil {
@@ -51,7 +51,7 @@ func NewEmitter() (*Emitter, error) {
 	}
 
 	return &Emitter{
-		tracer:         otel.Tracer("github.com/fireflycore/service-mesh/dataplane/invoke"),
+		tracer:         otel.Tracer("github.com/fireflycore/service-mesh/plane/data/invoke"),
 		requestCounter: requestCounter,
 		failureCounter: failureCounter,
 		retryCounter:   retryCounter,

@@ -5,12 +5,13 @@ import (
 	"strings"
 
 	controlv1 "github.com/fireflycore/service-mesh/.gen/proto/acme/control/v1"
-	"github.com/fireflycore/service-mesh/controlplane/snapshot"
+	"github.com/fireflycore/service-mesh/plane/control/snapshot"
 	"go.opentelemetry.io/otel"
 	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/metric"
 )
 
+// Emitter documents the corresponding declaration.
 type Emitter struct {
 	watchRestartCounter metric.Int64Counter
 	watchUpdateCounter  metric.Int64Counter
@@ -18,8 +19,9 @@ type Emitter struct {
 	pushDecisionCounter metric.Int64Counter
 }
 
+// NewEmitter documents the corresponding declaration.
 func NewEmitter() *Emitter {
-	meter := otel.Meter("github.com/fireflycore/service-mesh/controlplane/telemetry")
+	meter := otel.Meter("github.com/fireflycore/service-mesh/plane/control/telemetry")
 
 	watchRestartCounter, _ := meter.Int64Counter("service_mesh.controlplane.watch.restarts")
 	watchUpdateCounter, _ := meter.Int64Counter("service_mesh.controlplane.watch.updates")
@@ -34,6 +36,7 @@ func NewEmitter() *Emitter {
 	}
 }
 
+// RecordWatchRestart documents the corresponding declaration.
 func (e *Emitter) RecordWatchRestart(ctx context.Context, provider, service, namespace, env string) {
 	if e == nil || e.watchRestartCounter == nil {
 		return
@@ -46,6 +49,7 @@ func (e *Emitter) RecordWatchRestart(ctx context.Context, provider, service, nam
 	))
 }
 
+// RecordWatchUpdate documents the corresponding declaration.
 func (e *Emitter) RecordWatchUpdate(ctx context.Context, update snapshot.WatchUpdate) {
 	if e == nil || e.watchUpdateCounter == nil {
 		return
@@ -68,6 +72,7 @@ func (e *Emitter) RecordWatchUpdate(ctx context.Context, update snapshot.WatchUp
 	))
 }
 
+// RecordReplayResource documents the corresponding declaration.
 func (e *Emitter) RecordReplayResource(ctx context.Context, phase, dataplaneID, namespace, env, resourceKind, matchKind string, count int64) {
 	if e == nil || e.replayCounter == nil || count <= 0 {
 		return
@@ -82,6 +87,7 @@ func (e *Emitter) RecordReplayResource(ctx context.Context, phase, dataplaneID, 
 	))
 }
 
+// RecordPushDecision documents the corresponding declaration.
 func (e *Emitter) RecordPushDecision(ctx context.Context, responseKind, service, namespace, env, decision, subscriptionMatch, identityMatch string, count int64) {
 	if e == nil || e.pushDecisionCounter == nil || count <= 0 {
 		return
@@ -97,6 +103,7 @@ func (e *Emitter) RecordPushDecision(ctx context.Context, responseKind, service,
 	))
 }
 
+// snapshotStatusLabel documents the corresponding declaration.
 func snapshotStatusLabel(status controlv1.SnapshotStatus) string {
 	switch status {
 	case controlv1.SnapshotStatus_SNAPSHOT_STATUS_STALE:
@@ -110,10 +117,12 @@ func snapshotStatusLabel(status controlv1.SnapshotStatus) string {
 	}
 }
 
+// SnapshotStatusLabel documents the corresponding declaration.
 func SnapshotStatusLabel(status controlv1.SnapshotStatus) string {
 	return snapshotStatusLabel(status)
 }
 
+// SnapshotReasonClass documents the corresponding declaration.
 func SnapshotReasonClass(reason string) string {
 	trimmed := strings.TrimSpace(reason)
 	if trimmed == "" {

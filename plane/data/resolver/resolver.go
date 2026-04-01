@@ -3,8 +3,8 @@ package resolver
 import (
 	"context"
 
-	"github.com/fireflycore/service-mesh/dataplane/balancer"
 	"github.com/fireflycore/service-mesh/pkg/model"
+	"github.com/fireflycore/service-mesh/plane/data/balancer"
 	"github.com/fireflycore/service-mesh/source"
 )
 

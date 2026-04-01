@@ -4,16 +4,18 @@ import (
 	"sort"
 
 	controlv1 "github.com/fireflycore/service-mesh/.gen/proto/acme/control/v1"
-	"github.com/fireflycore/service-mesh/controlplane/snapshot"
 	"github.com/fireflycore/service-mesh/pkg/model"
+	"github.com/fireflycore/service-mesh/plane/control/snapshot"
 )
 
+// deliveryCycle documents the corresponding declaration.
 type deliveryCycle struct {
 	cache               *arbitrationCache
 	changedSnapshotKeys map[string]struct{}
 	deliveredPolicyKeys map[string]struct{}
 }
 
+// newDeliveryCycle documents the corresponding declaration.
 func newDeliveryCycle(store *snapshot.Store) deliveryCycle {
 	if store == nil {
 		return deliveryCycle{
@@ -31,6 +33,7 @@ func newDeliveryCycle(store *snapshot.Store) deliveryCycle {
 	}
 }
 
+// ForIdentity documents the corresponding declaration.
 func (d deliveryCycle) ForIdentity(identity *controlv1.DataplaneIdentity) resourceArbitrator {
 	if d.cache == nil {
 		return resourceArbitrator{}
@@ -38,6 +41,7 @@ func (d deliveryCycle) ForIdentity(identity *controlv1.DataplaneIdentity) resour
 	return d.cache.ForIdentity(identity)
 }
 
+// ForSubscriber documents the corresponding declaration.
 func (d deliveryCycle) ForSubscriber(subscriber *subscriber) resourceArbitrator {
 	if d.cache == nil {
 		return resourceArbitrator{}
@@ -45,14 +49,17 @@ func (d deliveryCycle) ForSubscriber(subscriber *subscriber) resourceArbitrator 
 	return d.cache.ForSubscriber(subscriber)
 }
 
+// AllowsPolicy documents the corresponding declaration.
 func (d deliveryCycle) AllowsPolicy(subscriber *subscriber, policy *controlv1.RoutePolicy) bool {
 	return d.ForSubscriber(subscriber).AllowsPolicy(policy)
 }
 
+// AllowsSnapshot documents the corresponding declaration.
 func (d deliveryCycle) AllowsSnapshot(subscriber *subscriber, snapshot *controlv1.ServiceSnapshot) bool {
 	return d.ForSubscriber(subscriber).AllowsSnapshot(snapshot)
 }
 
+// AllowsResponse documents the corresponding declaration.
 func (d deliveryCycle) AllowsResponse(subscriber *subscriber, resp *controlv1.ConnectResponse) bool {
 	if resp == nil {
 		return true
@@ -69,6 +76,7 @@ func (d deliveryCycle) AllowsResponse(subscriber *subscriber, resp *controlv1.Co
 	return true
 }
 
+// SnapshotForSubscriberTarget documents the corresponding declaration.
 func (d deliveryCycle) SnapshotForSubscriberTarget(subscriber *subscriber, target model.ServiceRef) *controlv1.ServiceSnapshot {
 	snapshot := d.ForSubscriber(subscriber).SnapshotForTarget(target)
 	if snapshot == nil {
@@ -80,6 +88,7 @@ func (d deliveryCycle) SnapshotForSubscriberTarget(subscriber *subscriber, targe
 	return snapshot
 }
 
+// PolicyForSubscriberTarget documents the corresponding declaration.
 func (d deliveryCycle) PolicyForSubscriberTarget(subscriber *subscriber, target model.ServiceRef) *controlv1.RoutePolicy {
 	policy := d.ForSubscriber(subscriber).PolicyForTarget(target)
 	if policy == nil {
@@ -91,6 +100,7 @@ func (d deliveryCycle) PolicyForSubscriberTarget(subscriber *subscriber, target 
 	return policy
 }
 
+// RememberChangedSnapshot documents the corresponding declaration.
 func (d deliveryCycle) RememberChangedSnapshot(snapshot *controlv1.ServiceSnapshot) {
 	if snapshot == nil || snapshot.GetService() == nil {
 		return
@@ -103,11 +113,13 @@ func (d deliveryCycle) RememberChangedSnapshot(snapshot *controlv1.ServiceSnapsh
 	})] = struct{}{}
 }
 
+// HasChangedSnapshotForTarget documents the corresponding declaration.
 func (d deliveryCycle) HasChangedSnapshotForTarget(target model.ServiceRef) bool {
 	_, ok := d.changedSnapshotKeys[targetKey(target)]
 	return ok
 }
 
+// SnapshotForSubscribeTarget documents the corresponding declaration.
 func (d deliveryCycle) SnapshotForSubscribeTarget(subscriber *subscriber, target model.ServiceRef) *controlv1.ServiceSnapshot {
 	if d.HasChangedSnapshotForTarget(target) {
 		return nil
@@ -115,6 +127,7 @@ func (d deliveryCycle) SnapshotForSubscribeTarget(subscriber *subscriber, target
 	return d.SnapshotForSubscriberTarget(subscriber, target)
 }
 
+// PolicyForSubscribeTarget documents the corresponding declaration.
 func (d deliveryCycle) PolicyForSubscribeTarget(subscriber *subscriber, target model.ServiceRef) *controlv1.RoutePolicy {
 	policy := d.PolicyForSubscriberTarget(subscriber, target)
 	if policy == nil {
@@ -133,12 +146,14 @@ func (d deliveryCycle) PolicyForSubscribeTarget(subscriber *subscriber, target m
 	return policy
 }
 
+// RememberChangedSnapshots documents the corresponding declaration.
 func (d deliveryCycle) RememberChangedSnapshots(changed []*controlv1.ServiceSnapshot) {
 	for _, snapshot := range changed {
 		d.RememberChangedSnapshot(snapshot)
 	}
 }
 
+// SubscribeBatch documents the corresponding declaration.
 func (d deliveryCycle) SubscribeBatch(subscriber *subscriber, targets []model.ServiceRef, changed []*controlv1.ServiceSnapshot) deliveryBatch {
 	d.RememberChangedSnapshots(changed)
 
@@ -160,6 +175,7 @@ func (d deliveryCycle) SubscribeBatch(subscriber *subscriber, targets []model.Se
 	return builder.build()
 }
 
+// RegisterBatch documents the corresponding declaration.
 func (d deliveryCycle) RegisterBatch(identity *controlv1.DataplaneIdentity) deliveryBatch {
 	arbitrator := d.ForIdentity(identity)
 	builder := newDeliveryBatchBuilder(len(arbitrator.SelectedSnapshots())+len(arbitrator.SelectedPolicies()), 0)
@@ -168,6 +184,7 @@ func (d deliveryCycle) RegisterBatch(identity *controlv1.DataplaneIdentity) deli
 	return builder.build()
 }
 
+// TargetBroadcastBatch documents the corresponding declaration.
 func (d deliveryCycle) TargetBroadcastBatch(subscribers map[uint64]*subscriber, resp *controlv1.ConnectResponse, target model.ServiceRef) deliveryBatch {
 	if len(subscribers) == 0 || resp == nil {
 		return deliveryBatch{}
@@ -186,6 +203,7 @@ func (d deliveryCycle) TargetBroadcastBatch(subscribers map[uint64]*subscriber, 
 	return builder.build()
 }
 
+// ExplainTargetResponse documents the corresponding declaration.
 func (d deliveryCycle) ExplainTargetResponse(subscribers map[uint64]*subscriber, resp *controlv1.ConnectResponse, target model.ServiceRef) deliveryExplainSummary {
 	summary := deliveryExplainSummary{
 		responseKind: responseKind(resp),
@@ -238,6 +256,7 @@ func (d deliveryCycle) ExplainTargetResponse(subscribers map[uint64]*subscriber,
 	return summary
 }
 
+// AllowsTargetResponse documents the corresponding declaration.
 func (d deliveryCycle) AllowsTargetResponse(subscriber *subscriber, resp *controlv1.ConnectResponse, target model.ServiceRef) bool {
 	if !matchesSelectors(selectorFromSubscriber(subscriber), selectorFromResponse(resp, target)) {
 		return false
@@ -245,6 +264,7 @@ func (d deliveryCycle) AllowsTargetResponse(subscriber *subscriber, resp *contro
 	return d.AllowsResponse(subscriber, resp)
 }
 
+// subscriberDataplaneID documents the corresponding declaration.
 func subscriberDataplaneID(subscriber *subscriber) string {
 	if subscriber == nil || subscriber.identity == nil {
 		return ""
@@ -252,6 +272,7 @@ func subscriberDataplaneID(subscriber *subscriber) string {
 	return subscriber.identity.GetDataplaneId()
 }
 
+// orderedSubscribers documents the corresponding declaration.
 func orderedSubscribers(subscribers map[uint64]*subscriber) []*subscriber {
 	if len(subscribers) == 0 {
 		return nil

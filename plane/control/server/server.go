@@ -10,9 +10,9 @@ import (
 	"time"
 
 	controlv1 "github.com/fireflycore/service-mesh/.gen/proto/acme/control/v1"
-	"github.com/fireflycore/service-mesh/controlplane/snapshot"
-	controltelemetry "github.com/fireflycore/service-mesh/controlplane/telemetry"
 	"github.com/fireflycore/service-mesh/pkg/model"
+	"github.com/fireflycore/service-mesh/plane/control/snapshot"
+	controltelemetry "github.com/fireflycore/service-mesh/plane/control/telemetry"
 	"google.golang.org/grpc"
 	"google.golang.org/protobuf/proto"
 )

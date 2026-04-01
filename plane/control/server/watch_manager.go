@@ -7,11 +7,12 @@ import (
 	"sync"
 	"time"
 
-	"github.com/fireflycore/service-mesh/controlplane/snapshot"
-	controltelemetry "github.com/fireflycore/service-mesh/controlplane/telemetry"
 	"github.com/fireflycore/service-mesh/pkg/model"
+	"github.com/fireflycore/service-mesh/plane/control/snapshot"
+	controltelemetry "github.com/fireflycore/service-mesh/plane/control/telemetry"
 )
 
+// watchManager documents the corresponding declaration.
 type watchManager struct {
 	loader    *snapshot.Loader
 	telemetry *controltelemetry.Emitter
@@ -24,6 +25,7 @@ type watchManager struct {
 
 const watchRestartBackoff = 200 * time.Millisecond
 
+// newWatchManager documents the corresponding declaration.
 func newWatchManager(loader *snapshot.Loader, telemetry *controltelemetry.Emitter, onUpdate func(snapshot.WatchUpdate)) *watchManager {
 	return &watchManager{
 		loader:    loader,
@@ -33,6 +35,7 @@ func newWatchManager(loader *snapshot.Loader, telemetry *controltelemetry.Emitte
 	}
 }
 
+// Start documents the corresponding declaration.
 func (m *watchManager) Start(ctx context.Context, targets []model.ServiceRef) {
 	if m == nil || ctx == nil {
 		return
@@ -47,6 +50,7 @@ func (m *watchManager) Start(ctx context.Context, targets []model.ServiceRef) {
 	}
 }
 
+// Track documents the corresponding declaration.
 func (m *watchManager) Track(target model.ServiceRef) {
 	if m == nil || m.loader == nil || strings.TrimSpace(target.Service) == "" {
 		return
@@ -139,6 +143,7 @@ func (m *watchManager) Track(target model.ServiceRef) {
 	}()
 }
 
+// loaderProviderName documents the corresponding declaration.
 func (m *watchManager) loaderProviderName() string {
 	if m == nil || m.loader == nil {
 		return ""
@@ -146,6 +151,7 @@ func (m *watchManager) loaderProviderName() string {
 	return m.loader.ProviderName()
 }
 
+// waitWatchRestart documents the corresponding declaration.
 func waitWatchRestart(ctx context.Context) bool {
 	timer := time.NewTimer(watchRestartBackoff)
 	defer timer.Stop()

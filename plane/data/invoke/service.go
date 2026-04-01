@@ -9,13 +9,13 @@ import (
 
 	controlv1 "github.com/fireflycore/service-mesh/.gen/proto/acme/control/v1"
 	invokev1 "github.com/fireflycore/service-mesh/.gen/proto/acme/invoke/v1"
-	"github.com/fireflycore/service-mesh/dataplane/authz"
-	meshresolver "github.com/fireflycore/service-mesh/dataplane/resolver"
-	meshtelemetry "github.com/fireflycore/service-mesh/dataplane/telemetry"
-	"github.com/fireflycore/service-mesh/dataplane/transport"
 	"github.com/fireflycore/service-mesh/pkg/config"
 	"github.com/fireflycore/service-mesh/pkg/model"
 	"github.com/fireflycore/service-mesh/pkg/originalidentity"
+	"github.com/fireflycore/service-mesh/plane/data/authz"
+	meshresolver "github.com/fireflycore/service-mesh/plane/data/resolver"
+	meshtelemetry "github.com/fireflycore/service-mesh/plane/data/telemetry"
+	"github.com/fireflycore/service-mesh/plane/data/transport"
 	otelcodes "go.opentelemetry.io/otel/codes"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
@@ -41,7 +41,7 @@ type LocalIdentity struct {
 	Namespace string
 	Env       string
 	// TargetMode 控制是否允许目标再次指向本地绑定服务身份。
-	TargetMode string
+	TargetMode                      string
 	TrustedOriginalIdentityInjector bool
 }
 

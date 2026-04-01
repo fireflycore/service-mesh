@@ -8,14 +8,17 @@ import (
 	"github.com/fireflycore/service-mesh/pkg/model"
 )
 
+// ErrSnapshotDegraded documents the corresponding declaration.
 var ErrSnapshotDegraded = errors.New("service snapshot degraded")
 
+// SnapshotStatusError documents the corresponding declaration.
 type SnapshotStatusError struct {
 	Target model.ServiceRef
 	Status string
 	Reason string
 }
 
+// Error documents the corresponding declaration.
 func (e *SnapshotStatusError) Error() string {
 	if e == nil {
 		return ErrSnapshotDegraded.Error()
@@ -33,6 +36,7 @@ func (e *SnapshotStatusError) Error() string {
 	return strings.Join(parts, " ")
 }
 
+// Unwrap documents the corresponding declaration.
 func (e *SnapshotStatusError) Unwrap() error {
 	return ErrSnapshotDegraded
 }

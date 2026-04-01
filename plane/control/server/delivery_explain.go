@@ -8,6 +8,7 @@ import (
 	"github.com/fireflycore/service-mesh/pkg/model"
 )
 
+// deliveryExplainSummary documents the corresponding declaration.
 type deliveryExplainSummary struct {
 	responseKind         string
 	target               model.ServiceRef
@@ -22,6 +23,7 @@ type deliveryExplainSummary struct {
 	trace                []deliveryDecisionTrace
 }
 
+// batchExplainSummary documents the corresponding declaration.
 type batchExplainSummary struct {
 	streamResponses        int
 	serviceSnapshots       int
@@ -30,6 +32,7 @@ type batchExplainSummary struct {
 	unknown                int
 }
 
+// BatchExplainExport documents the corresponding declaration.
 type BatchExplainExport struct {
 	StreamResponses        int
 	ServiceSnapshots       int
@@ -38,6 +41,7 @@ type BatchExplainExport struct {
 	Unknown                int
 }
 
+// replayExplainSummary documents the corresponding declaration.
 type replayExplainSummary struct {
 	snapshotExact    int
 	snapshotFallback int
@@ -45,6 +49,7 @@ type replayExplainSummary struct {
 	policyFallback   int
 }
 
+// ReplayExplainExport documents the corresponding declaration.
 type ReplayExplainExport struct {
 	SnapshotExact    int
 	SnapshotFallback int
@@ -52,11 +57,13 @@ type ReplayExplainExport struct {
 	PolicyFallback   int
 }
 
+// RegisterReplayExplainExport documents the corresponding declaration.
 type RegisterReplayExplainExport struct {
 	Replay ReplayExplainExport
 	Batch  BatchExplainExport
 }
 
+// SubscribeReplayExplainExport documents the corresponding declaration.
 type SubscribeReplayExplainExport struct {
 	TargetCount          int
 	ChangedSnapshotCount int
@@ -64,6 +71,7 @@ type SubscribeReplayExplainExport struct {
 	Batch                BatchExplainExport
 }
 
+// deliveryDecisionTrace documents the corresponding declaration.
 type deliveryDecisionTrace struct {
 	dataplaneID       string
 	subscriptionMatch string
@@ -71,6 +79,7 @@ type deliveryDecisionTrace struct {
 	decision          string
 }
 
+// DeliveryDecisionTraceExport documents the corresponding declaration.
 type DeliveryDecisionTraceExport struct {
 	DataplaneID       string
 	SubscriptionMatch string
@@ -78,6 +87,7 @@ type DeliveryDecisionTraceExport struct {
 	Decision          string
 }
 
+// DeliveryExplainExport documents the corresponding declaration.
 type DeliveryExplainExport struct {
 	ResponseKind         string
 	Delivered            int
@@ -93,6 +103,7 @@ type DeliveryExplainExport struct {
 	Trace                []DeliveryDecisionTraceExport
 }
 
+// traceString documents the corresponding declaration.
 func (s deliveryExplainSummary) traceString(limit int) string {
 	if len(s.trace) == 0 || limit == 0 {
 		return ""
@@ -108,6 +119,7 @@ func (s deliveryExplainSummary) traceString(limit int) string {
 	return strings.Join(parts, ";")
 }
 
+// traceShownCount documents the corresponding declaration.
 func (s deliveryExplainSummary) traceShownCount(limit int) int {
 	if len(s.trace) == 0 || limit == 0 {
 		return 0
@@ -118,6 +130,7 @@ func (s deliveryExplainSummary) traceShownCount(limit int) int {
 	return limit
 }
 
+// export documents the corresponding declaration.
 func (s deliveryExplainSummary) export(limit int) DeliveryExplainExport {
 	shown := s.traceShownCount(limit)
 	exported := DeliveryExplainExport{
@@ -149,6 +162,7 @@ func (s deliveryExplainSummary) export(limit int) DeliveryExplainExport {
 	return exported
 }
 
+// export documents the corresponding declaration.
 func (s replayExplainSummary) export() ReplayExplainExport {
 	return ReplayExplainExport{
 		SnapshotExact:    s.snapshotExact,
@@ -158,6 +172,7 @@ func (s replayExplainSummary) export() ReplayExplainExport {
 	}
 }
 
+// export documents the corresponding declaration.
 func (s batchExplainSummary) export() BatchExplainExport {
 	return BatchExplainExport{
 		StreamResponses:        s.streamResponses,
@@ -168,6 +183,7 @@ func (s batchExplainSummary) export() BatchExplainExport {
 	}
 }
 
+// responseKind documents the corresponding declaration.
 func responseKind(resp *controlv1.ConnectResponse) string {
 	switch {
 	case resp == nil:

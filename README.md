@@ -1,5 +1,7 @@
 # service-mesh
 
+> 状态更新：当前仓库已退出主路径。`sidecar-agent` 已从 `service-mesh` 方案中独立出来，成为当前裸机治理与代理主线；本仓库保留为历史实现与代码参考，不再建议继续投入新功能。
+
 `service-mesh` 是 firefly 体系中面向非 K8s 阶段的轻量服务网格项目，用于承接：
 
 - `go-micro/invocation` 的统一业务调用语义
@@ -9,9 +11,9 @@
 
 ## 当前定位
 
-- 默认运行模式：`agent`
-- 可选运行模式：`sidecar`
-- 非 K8s 阶段提供轻量数据面能力
+- 当前定位已降级为历史仓库与能力参考
+- 默认运行模式与 sidecar/control plane 设计不再作为现行主路径推进
+- 现行裸机主路径为 `go-micro/registry/agent -> sidecar-agent -> consul / envoy`
 - 进入 `K8s + Istio` 阶段后，由平台侧主数据面替换
 
 ## 当前目标

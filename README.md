@@ -13,7 +13,7 @@
 
 - 当前定位已降级为历史仓库与能力参考
 - 默认运行模式与 sidecar/control plane 设计不再作为现行主路径推进
-- 现行裸机主路径为 `go-micro/registry/agent -> sidecar-agent -> consul / envoy`
+- 现行裸机主路径为 `go-consul/agent -> sidecar-agent -> consul / envoy`
 - 进入 `K8s + Istio` 阶段后，由平台侧主数据面替换
 
 ## 当前目标
